@@ -1,0 +1,8 @@
+build/
+*.o
+*.a
+.vscode/
+*.png
+*.dot
+SESSION.md
+
