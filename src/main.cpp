@@ -12,8 +12,12 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // Next: read argv[1] into an AIG and print_stats.
-    std::cerr << "mini-ls: not implemented yet\n";
-    (void)argv;
-    return 1;
+    aigGraph g;
+    if (!g.read_aiger(argv[1])) {
+        return 1;
+    }
+
+    g.clean_dangling();
+    g.print_stats();
+    return 0;
 }
