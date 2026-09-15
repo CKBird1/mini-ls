@@ -1,0 +1,5 @@
+#mini-ls
+
+Day 1-4 (9-11-2026 to 9-14-2026): Prepared envorinments, created repository, did labs to work with my installation of ABC, visualize it's outputs, and become more deeply understanding of concepts like rewrite, balance, etc. Despite knowing these in the past, reviewing and putting into ABC was good solid memory recall/patching gaps.
+
+Day 4 (9-14-2026): Created the aigNode and aigGraph that sit in aig.cpp/hpp. This includes functions to create new AND, PI, PO, and constants. It also includes the datastructures needed for expanding the AIG, such as preventing duplicate additions using unordered_map to store previously made-ANDs, and constant folding so that we do not create ANDs that are guaranteed to have a specific single output (x&x, x&0, x&~x etc). Next is to add the AIGER parser (AIGER good for abc/yosys, good no-license tools to work with instead of trying to truly mimic company-sized codebases).
