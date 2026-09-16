@@ -50,6 +50,7 @@ class aigGraph {
         uint32_t create_po(int a, bool ainv);
 
         bool read_aiger(const char* path);
+        bool write_aiger(const char* path) const;
 
         int num_pis() const { return (int)_pis.size(); }
         int num_pos() const { return (int)_pos.size(); }
@@ -61,6 +62,8 @@ class aigGraph {
             return n;
         }
 
+        void balance();
+
         void print_stats();
         int max_lev();
         void clean_dangling();
@@ -70,5 +73,7 @@ class aigGraph {
         std::vector<int> _pis;
         std::vector<int> _pos;
         std::unordered_map<std::uint64_t, int> _hashedNodes;
+
+        std::uint64_t make_lit(int index);
 
 };

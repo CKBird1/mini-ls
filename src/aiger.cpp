@@ -214,3 +214,122 @@ bool aigGraph::read_aiger(const char* path) {
     }
     return true;
 }
+
+static bool encode_u32(std::ostream& out, uint32_t x) {
+    for (unsigned i = 0; i < 5; ++i) {
+        uint32_t byte = x & 0x7f;
+        x >>= 7;
+        if (x) {
+            out.put((char)(byte | 0x80));
+        } else {
+            out.put((char)byte);
+            return (bool)out;
+        }
+    }
+    return false;
+}
+
+static bool ends_with_aag(const char* path) {
+    const std::string p(path);
+    return p.size() >= 4 && p.compare(p.size() - 4, 4, ".aag") == 0;
+}
+
+bool aigGraph::write_aiger(const char* path) const {
+    if (!path || !*path) {
+        return fail("empty write path");
+    }
+
+    const bool binary = !ends_with_aag(path);
+
+    std::vector<uint32_t> aig_var(_nodes.size(), 0);
+    uint32_t next = 1;
+    for (int pi : _pis) {
+        if (pi <= 0 || (std::size_t)pi >= _nodes.size() || !_nodes[(std::size_t)pi].isPi) {
+            return fail("bad PI id");
+        }
+        aig_var[(std::size_t)pi] = next++;
+    }
+
+    std::vector<int> ands;
+    for (std::size_t i = 0; i < _nodes.size(); ++i) {
+        const aigNode& n = _nodes[i];
+        if (n.isPi || n.isPo || n.isConst || n.tombstone) {
+            continue;
+        }
+        aig_var[i] = next++;
+        ands.push_back((int)i);
+    }
+
+    const uint32_t I = (uint32_t)_pis.size();
+    const uint32_t O = (uint32_t)_pos.size();
+    const uint32_t A = (uint32_t)ands.size();
+    const uint32_t M = I + A;
+    if (next - 1 != M) {
+        return fail("aiger variable numbering mismatch");
+    }
+
+    auto lit_of = [&](int id, bool inv, uint32_t& out) -> bool {
+        if (id < 0 || (std::size_t)id >= aig_var.size()) {
+            return false;
+        }
+        if (id != 0 && aig_var[(std::size_t)id] == 0) {
+            return false;
+        }
+        out = (aig_var[(std::size_t)id] << 1) | (inv ? 1u : 0u);
+        return true;
+    };
+
+    std::ofstream out(path, std::ios::binary);
+    if (!out) {
+        return fail(std::string("cannot write ") + path);
+    }
+
+    out << (binary ? "aig" : "aag") << ' ' << M << ' ' << I << " 0 " << O << ' ' << A << '\n';
+
+    if (!binary) {
+        for (uint32_t i = 1; i <= I; ++i) {
+            out << (2u * i) << '\n';
+        }
+    }
+
+    for (int po : _pos) {
+        if (po < 0 || (std::size_t)po >= _nodes.size() || !_nodes[(std::size_t)po].isPo) {
+            return fail("bad PO id");
+        }
+        const aigNode& n = _nodes[(std::size_t)po];
+        uint32_t lit = 0;
+        if (!lit_of(n.input_a, n.invert_a, lit)) {
+            return fail("PO driver is not a live AIGER variable");
+        }
+        out << lit << '\n';
+    }
+
+    for (int id : ands) {
+        const aigNode& n = _nodes[(std::size_t)id];
+        const uint32_t lhs = aig_var[(std::size_t)id] << 1;
+        uint32_t rhs0 = 0, rhs1 = 0;
+        if (!lit_of(n.input_a, n.invert_a, rhs0) || !lit_of(n.input_b, n.invert_b, rhs1)) {
+            return fail("AND fanin is not a live AIGER variable");
+        }
+        if (rhs0 < rhs1) {
+            const uint32_t t = rhs0;
+            rhs0 = rhs1;
+            rhs1 = t;
+        }
+        if (lhs <= rhs0) {
+            return fail("AND is not in topological order");
+        }
+        if (binary) {
+            if (!encode_u32(out, lhs - rhs0) || !encode_u32(out, rhs0 - rhs1)) {
+                return fail("failed to write AND");
+            }
+        } else {
+            out << lhs << ' ' << rhs0 << ' ' << rhs1 << '\n';
+        }
+    }
+
+    if (!out) {
+        return fail(std::string("failed to write ") + path);
+    }
+    return true;
+}
