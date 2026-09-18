@@ -40,6 +40,11 @@ struct aigNode {
     }
 };
 
+struct Cut {
+    int leaf[4] = {};
+    int nLeaves = 0;
+};
+
 class aigGraph {
     
     public:
@@ -63,6 +68,7 @@ class aigGraph {
         }
 
         void balance();
+        void rewrite();
 
         void print_stats();
         int max_lev();
@@ -76,4 +82,5 @@ class aigGraph {
 
         std::uint64_t make_lit(int index);
 
+        void enumerate_cuts(std::vector<std::vector<Cut>>& cuts);
 };

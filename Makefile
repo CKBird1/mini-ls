@@ -24,7 +24,7 @@ build:
 	mkdir -p build
 
 run: $(BIN)
-	$(BIN) $(I10)
+	$(BIN) $(I10) -c balance
 
 clean:
 	rm -rf build
