@@ -205,3 +205,80 @@ std::uint64_t aigGraph::make_lit(int index) {
     uint64_t literal = (std::uint64_t)lit_a << 32 | lit_b;
     return literal;
 }
+
+Cut aigGraph::upper_cut(Cut ca, Cut cb) {
+    int i = 0, j = 0, index = 0;
+    int out[8];
+    while(i < ca.nLeaves && j < cb.nLeaves) {
+        if(ca.leaf[i] == cb.leaf[j]) {
+            out[index++] = ca.leaf[i];
+            ++i; ++j;
+        } else if(ca.leaf[i] < cb.leaf[j]) {
+            out[index++] = ca.leaf[i++];
+        } else {
+            out[index++] = cb.leaf[j++];
+        }
+    }
+    while(i < ca.nLeaves) out[index++] = ca.leaf[i++];
+    while(j < cb.nLeaves) out[index++] = cb.leaf[j++];
+    Cut new_cut;
+    if(index > 4) {
+        new_cut.nLeaves = 0;
+        return new_cut;
+    }
+    new_cut.nLeaves = index;
+    i = 0;
+    while(i < index) { new_cut.leaf[i] = out[i]; ++i; }
+    return new_cut;
+}
+
+bool aigGraph::same_cut(Cut ca, Cut cb) {
+    if(ca.nLeaves != cb.nLeaves) return false;
+    else {
+        for(int i = 0; i < ca.nLeaves; ++i) {
+            if(ca.leaf[i] != cb.leaf[i]) return false;
+        }
+    }
+    return true;
+}
+
+void aigGraph::enumerate_cuts(std::vector<std::vector<Cut>>& cuts_by_node) {
+    for(int i = 0; (std::size_t)i < _nodes.size(); ++i) {
+        if(_nodes[i].isPo || _nodes[i].isConst || _nodes[i].tombstone) continue;
+        
+        Cut cut;
+        cut.nLeaves = 1; 
+        cut.leaf[0] = i;
+        cuts_by_node[i].push_back(cut);
+        if(_nodes[i].isPi) continue;
+        else {
+            int adex = _nodes[i].input_a;
+            int bdex = _nodes[i].input_b;
+            for(int j = 0; (std::size_t)j < cuts_by_node[adex].size(); ++j) {
+                for(int k = 0; (std::size_t)k < cuts_by_node[bdex].size(); ++k) {
+                    //work with cuts_by_node[adex][j] and cuts_by_node[bdex][k] to make a new union each loop
+                    Cut ca = cuts_by_node[adex][j];
+                    Cut cb = cuts_by_node[bdex][k];
+                    Cut nc = upper_cut(ca, cb);
+                    if(nc.nLeaves == 0) continue;
+                    
+                    //Now loop over cuts_by_node[i] and check against new cut nc
+                    bool same = false;
+                    for(int l = 0; l < (std::size_t)cuts_by_node[i].size(); ++l) {
+                        same = same_cut(nc, cuts_by_node[i][l]);
+                        if(same) break;
+                    }
+                    if(!same) cuts_by_node[i].push_back(nc);                    
+                }
+            }
+        }
+    }
+}
+
+void aigGraph::rewrite() {
+    //Step one create the vector of vector of cuts so that we can store the cuts per node
+    std::vector<std::vector<Cut>> cuts_by_node;
+    cuts_by_node.resize(_nodes.size());
+    enumerate_cuts(cuts_by_node); 
+
+}

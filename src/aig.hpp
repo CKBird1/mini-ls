@@ -82,5 +82,7 @@ class aigGraph {
 
         std::uint64_t make_lit(int index);
 
-        void enumerate_cuts(std::vector<std::vector<Cut>>& cuts);
+        Cut upper_cut(Cut ca, Cut cb);
+        bool same_cut(Cut ca, Cut cb);
+        void enumerate_cuts(std::vector<std::vector<Cut>>& cuts_by_node);
 };
