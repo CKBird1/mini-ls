@@ -264,7 +264,7 @@ void aigGraph::enumerate_cuts(std::vector<std::vector<Cut>>& cuts_by_node) {
                     
                     //Now loop over cuts_by_node[i] and check against new cut nc
                     bool same = false;
-                    for(int l = 0; l < (std::size_t)cuts_by_node[i].size(); ++l) {
+                    for(int l = 0; l < (int)cuts_by_node[i].size(); ++l) {
                         same = same_cut(nc, cuts_by_node[i][l]);
                         if(same) break;
                     }
@@ -275,10 +275,43 @@ void aigGraph::enumerate_cuts(std::vector<std::vector<Cut>>& cuts_by_node) {
     }
 }
 
+std::uint16_t aigGraph::cut_tt(Cut c, int id) {
+    std::vector<int> starters = {0xAAAA, 0xCCCC, 0xF0F0, 0xFF00}; //Initialize 4-bit truth-table worthy inputs to each leaf
+    std::vector<int> tts((int)_nodes.size(), -1);
+    for(int i = 0; i < c.nLeaves; ++i) tts[c.leaf[i]] = starters[i];
+
+    std::uint16_t curr_tt = eval_tt(tts, id); //Recursive call, it travels 'up' the fanins until it hits the leaves, then back down to build this tt
+    return curr_tt;
+}
+
+
+std::uint16_t aigGraph::eval_tt(std::vector<int> &tts, int id) {
+    if(tts[id] != -1) return tts[id];
+
+    int fanina = eval_tt(tts, _nodes[id].input_a);
+    if(_nodes[id].invert_a) fanina = (~fanina) & 0xFFFF; //Invert and then mask the upper 16
+    int faninb = eval_tt(tts, _nodes[id].input_b);
+    if(_nodes[id].invert_b) faninb = (~faninb) & 0xFFFF;
+    int result = fanina & faninb;
+    tts[id] = result;
+    return result;
+}
+
 void aigGraph::rewrite() {
-    //Step one create the vector of vector of cuts so that we can store the cuts per node
     std::vector<std::vector<Cut>> cuts_by_node;
     cuts_by_node.resize(_nodes.size());
     enumerate_cuts(cuts_by_node); 
+    for(int nid = 0; (std::size_t)nid < cuts_by_node.size(); ++nid) {
+        if(_nodes[nid].isPi || _nodes[nid].isPo || _nodes[nid].isConst || _nodes[nid].tombstone) continue;
+        for(int cid = 0; (std::size_t)cid < cuts_by_node[nid].size(); ++cid) {
+            Cut& curr_cut = cuts_by_node[nid][cid];
+            std::uint16_t new_tt = cut_tt(curr_cut, nid);
+            curr_cut.tt = new_tt;
+        }
+        //This is now where we have gone over every cut for this node, choose the best truth table and assign the value
+        //This is not implemented yet, need gain, scope, NPN table etc
+    }
+
+
 
 }

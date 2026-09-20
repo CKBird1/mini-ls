@@ -43,6 +43,7 @@ struct aigNode {
 struct Cut {
     int leaf[4] = {};
     int nLeaves = 0;
+    std::uint16_t tt;
 };
 
 class aigGraph {
@@ -85,4 +86,6 @@ class aigGraph {
         Cut upper_cut(Cut ca, Cut cb);
         bool same_cut(Cut ca, Cut cb);
         void enumerate_cuts(std::vector<std::vector<Cut>>& cuts_by_node);
+        std::uint16_t eval_tt(std::vector<int>& tts, int id);
+        std::uint16_t cut_tt(Cut c, int id);
 };
