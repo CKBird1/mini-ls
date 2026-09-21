@@ -46,6 +46,22 @@ struct Cut {
     std::uint16_t tt;
 };
 
+struct NPN {
+    int best_perm[4];
+    int best_mask[4];
+    int best_neg;
+    std::uint16_t canon;
+
+    NPN();
+    NPN(int* bp, int* bm, int bn, std::uint16_t c) :
+        best_neg(bn), canon(c) { 
+            for(int i = 0; i < 4; ++i) {
+                best_perm[i] = bp[i];
+                best_mask[i] = bm[i];
+            }
+        }  
+};
+
 class aigGraph {
     
     public:
@@ -88,4 +104,5 @@ class aigGraph {
         void enumerate_cuts(std::vector<std::vector<Cut>>& cuts_by_node);
         std::uint16_t eval_tt(std::vector<int>& tts, int id);
         std::uint16_t cut_tt(Cut c, int id);
+        NPN canon_tt(Cut c);
 };

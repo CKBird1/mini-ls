@@ -297,6 +297,65 @@ std::uint16_t aigGraph::eval_tt(std::vector<int> &tts, int id) {
     return result;
 }
 
+NPN aigGraph::canon_tt(Cut c) {
+    std::uint16_t orig_tt = c.tt; //Make copy so we don't overwrite 
+    std::uint16_t best = 0xFFFF;
+    int best_perm[4], best_mask[4], best_neg;
+
+    //Now loop over all 3 of those nested, and inside each rebuild the 16 bits, compare to best, and then decide to keep or not
+    for(int m = 0; m < 16; ++m) { //The 16 masks for bit inversion
+        for(int n = 0; n <= 1; ++n) { //Negate or not
+            for(int a = 0; a < 4; ++a) { //nested loops for abcd perms (which permutation of 0 1 2 3)
+                for(int b = 0; b < 4; ++b) {
+                    if(a == b) continue;
+                    for(int c = 0; c < 4; ++c) {
+                        if(a == c || b == c) continue;
+                        for(int d = 0; d < 4; ++d) {
+                            if(a == d || b == d || c == d) continue;        
+                            int neg_in[4]; //Decide which bits are inverted
+                            for(int v = 0; v < 4; ++v) {
+                                neg_in[v] = (m >> v) & 1;
+                            }
+                        
+                            int perm[4] = {a, b, c, d};
+                            std::uint16_t curr = 0;
+                            for(int j = 0; j < 16; ++j) { //Update each bit based on inversion mask + perm abcd + negate
+                                int y[4];
+                                int x[4];
+                                for(int k = 0; k < 4; ++k) { //k at minterm j, write to perm[k], then xor invert
+                                    y[k] = (j >> k) & 1;
+                                    x[perm[k]] = y[k] ^ neg_in[perm[k]];
+                                }
+                                int i = x[0] | (x[1] << 1) | (x[2] << 2) | (x[3] << 3); //create 4 bit value in i
+                                int bit = (orig_tt >> i) & 1; //get the original bit in this position
+                                if(n) bit ^= 1; //Invert if needed
+                                curr |= (bit << j); //set current[correctBit] 
+                            }
+
+                            if(curr < best) {
+                                for(int i = 0; i < 4; ++i) {
+                                    best_perm[i] = perm[i];
+                                    best_mask[i] = neg_in[i];
+                                }
+                                best_neg = n;
+                                best = curr;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    NPN npn;
+    for(int i = 0; i < 4; ++i) {
+        npn.best_perm[i] = best_perm[i];
+        npn.best_mask[i] = best_mask[i];
+    }
+    npn.best_neg = best_neg;
+    npn.canon = best;
+    return npn;
+}
+
 void aigGraph::rewrite() {
     std::vector<std::vector<Cut>> cuts_by_node;
     cuts_by_node.resize(_nodes.size());
@@ -305,13 +364,10 @@ void aigGraph::rewrite() {
         if(_nodes[nid].isPi || _nodes[nid].isPo || _nodes[nid].isConst || _nodes[nid].tombstone) continue;
         for(int cid = 0; (std::size_t)cid < cuts_by_node[nid].size(); ++cid) {
             Cut& curr_cut = cuts_by_node[nid][cid];
+            if(curr_cut.nLeaves == 1 && curr_cut.leaf[0] == nid) continue;
             std::uint16_t new_tt = cut_tt(curr_cut, nid);
             curr_cut.tt = new_tt;
+            NPN npn = canon_tt(curr_cut);
         }
-        //This is now where we have gone over every cut for this node, choose the best truth table and assign the value
-        //This is not implemented yet, need gain, scope, NPN table etc
     }
-
-
-
 }
