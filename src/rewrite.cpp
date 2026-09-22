@@ -1,4 +1,6 @@
 #include "aig.hpp"
+#include "rwlib.hpp"
+#include <iostream>
 #include <vector>
 
 Cut aigGraph::upper_cut(Cut ca, Cut cb) {
@@ -157,10 +159,32 @@ NPN aigGraph::canon_tt(Cut c) {
     return npn;
 }
 
+std::uint32_t aigGraph::build_rwgraph(const RwGraph& g, const Cut& cut) {
+    std::uint32_t node_lit[12];
+    for (int i = 0; i < 4; ++i)
+        node_lit[i] = make_lit(cut.leaf[i], false);
+
+    auto rec_to_net = [&](std::uint32_t rec) {
+        return node_lit[lit_id(rec)] ^ (std::uint32_t)lit_inv(rec);
+    };
+
+    for (int i = 0; i < g.nAnds; ++i) {
+        std::uint32_t a = rec_to_net(g.fanin0[i]);
+        std::uint32_t b = rec_to_net(g.fanin1[i]);
+        node_lit[4 + i] = create_and(lit_id(a), lit_inv(a), lit_id(b), lit_inv(b));
+    }
+    return rec_to_net(g.root);
+}
+
 void aigGraph::rewrite() {
+    RwLib& lib = RwLib::instance();
+    lib.load_hand();
+
     std::vector<std::vector<Cut>> cuts_by_node;
     cuts_by_node.resize(_nodes.size());
-    enumerate_cuts(cuts_by_node); 
+    enumerate_cuts(cuts_by_node);
+
+    int hits = 0;
     for(int nid = 0; (std::size_t)nid < cuts_by_node.size(); ++nid) {
         if(_nodes[nid].isPi || _nodes[nid].isPo || _nodes[nid].isConst || _nodes[nid].tombstone) continue;
         for(int cid = 0; (std::size_t)cid < cuts_by_node[nid].size(); ++cid) {
@@ -169,6 +193,17 @@ void aigGraph::rewrite() {
             std::uint16_t new_tt = cut_tt(curr_cut, nid);
             curr_cut.tt = new_tt;
             NPN npn = canon_tt(curr_cut);
+            (void)npn;
+
+            const std::vector<RwGraph>* graphs = lib.find(curr_cut.tt);
+            if (!graphs) continue;
+            for (const RwGraph& g : *graphs) {
+                build_rwgraph(g, curr_cut);
+                ++hits;
+            }
         }
     }
+    clean_dangling();
+    std::cout << "hand rwlib: graphs = " << lib.size()
+              << "  matched cuts = " << hits << '\n';
 }

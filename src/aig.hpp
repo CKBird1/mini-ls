@@ -73,6 +73,8 @@ struct NPN {
         }  
 };
 
+struct RwGraph;
+
 class aigGraph {
     
     public:
@@ -116,4 +118,5 @@ class aigGraph {
         std::uint16_t eval_tt(std::vector<int>& tts, int id);
         std::uint16_t cut_tt(Cut c, int id);
         NPN canon_tt(Cut c);
+        std::uint32_t build_rwgraph(const RwGraph& g, const Cut& cut);
 };
