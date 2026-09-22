@@ -32,11 +32,11 @@ static bool import_lit(const std::vector<uint32_t>& var_lit,
                        const std::vector<char>& defined,
                        uint32_t aiger_lit,
                        uint32_t& out) {
-    uint32_t var = aiger_lit >> 1;
+    uint32_t var = (uint32_t)lit_id(aiger_lit);
     if (var >= var_lit.size() || !defined[var]) {
         return false;
     }
-    out = var_lit[var] ^ (aiger_lit & 1u);
+    out = var_lit[var] ^ (uint32_t)lit_inv(aiger_lit);
     return true;
 }
 
@@ -91,8 +91,8 @@ bool aigGraph::read_aiger(const char* path) {
     defined[0] = 1;
 
     auto add_and = [&](uint32_t lhs, uint32_t rhs0, uint32_t rhs1) -> bool {
-        uint32_t var = lhs >> 1;
-        if ((lhs & 1u) || var == 0 || var > M || defined[var]) {
+        uint32_t var = (uint32_t)lit_id(lhs);
+        if (lit_inv(lhs) || var == 0 || var > M || defined[var]) {
             return fail("bad AND lhs");
         }
         uint32_t in0 = 0, in1 = 0;
@@ -100,8 +100,8 @@ bool aigGraph::read_aiger(const char* path) {
             !import_lit(var_lit, defined, rhs1, in1)) {
             return fail("AND fanin is not defined");
         }
-        var_lit[var] = create_and((int)(in0 >> 1), (bool)(in0 & 1u),
-                                  (int)(in1 >> 1), (bool)(in1 & 1u));
+        var_lit[var] = create_and(lit_id(in0), lit_inv(in0),
+                                  lit_id(in1), lit_inv(in1));
         defined[var] = 1;
         return true;
     };
@@ -129,7 +129,7 @@ bool aigGraph::read_aiger(const char* path) {
         }
 
         for (uint32_t k = 0; k < A; ++k) {
-            uint32_t lhs = 2u * (I + 1 + k);
+            uint32_t lhs = make_lit((int)(I + 1 + k), false);
             uint32_t d0 = 0, d1 = 0;
             if (!decode_u32(in, d0) || !decode_u32(in, d1)) {
                 return fail("truncated AND section");
@@ -152,7 +152,7 @@ bool aigGraph::read_aiger(const char* path) {
             if (!import_lit(var_lit, defined, po_lits[i], our)) {
                 return fail("output refers to undefined variable");
             }
-            create_po((int)(our >> 1), (bool)(our & 1u));
+            create_po(lit_id(our), lit_inv(our));
         }
         return true;
     }
@@ -174,7 +174,7 @@ bool aigGraph::read_aiger(const char* path) {
         if (!read_uint(lit)) {
             return fail("truncated inputs");
         }
-        if (lit != 2u * i) {
+        if (lit != make_lit((int)i, false)) {
             return fail("ASCII input literals must be 2, 4, ..., 2I");
         }
         var_lit[i] = create_pi();
@@ -210,7 +210,7 @@ bool aigGraph::read_aiger(const char* path) {
         if (!import_lit(var_lit, defined, po_lits[i], our)) {
             return fail("output refers to undefined variable");
         }
-        create_po((int)(our >> 1), (bool)(our & 1u));
+        create_po(lit_id(our), lit_inv(our));
     }
     return true;
 }
@@ -275,7 +275,7 @@ bool aigGraph::write_aiger(const char* path) const {
         if (id != 0 && aig_var[(std::size_t)id] == 0) {
             return false;
         }
-        out = (aig_var[(std::size_t)id] << 1) | (inv ? 1u : 0u);
+        out = make_lit((int)aig_var[(std::size_t)id], inv);
         return true;
     };
 
@@ -288,7 +288,7 @@ bool aigGraph::write_aiger(const char* path) const {
 
     if (!binary) {
         for (uint32_t i = 1; i <= I; ++i) {
-            out << (2u * i) << '\n';
+            out << make_lit((int)i, false) << '\n';
         }
     }
 
@@ -306,7 +306,7 @@ bool aigGraph::write_aiger(const char* path) const {
 
     for (int id : ands) {
         const aigNode& n = _nodes[(std::size_t)id];
-        const uint32_t lhs = aig_var[(std::size_t)id] << 1;
+        const uint32_t lhs = make_lit((int)aig_var[(std::size_t)id], false);
         uint32_t rhs0 = 0, rhs1 = 0;
         if (!lit_of(n.input_a, n.invert_a, rhs0) || !lit_of(n.input_b, n.invert_b, rhs1)) {
             return fail("AND fanin is not a live AIGER variable");

@@ -3,6 +3,17 @@
 #include <unordered_map>
 #include <cstdint>
 
+//node id in the high bits, complement in the least significant bit.
+inline std::uint32_t make_lit(int id, bool inv) {
+    return ((std::uint32_t)id << 1) | (std::uint32_t)inv;
+}
+inline int lit_id(std::uint32_t lit) {
+    return (int)(lit >> 1);
+}
+inline bool lit_inv(std::uint32_t lit) {
+    return (lit & 1u) != 0;
+}
+
 struct aigNode {
     int id;
     
@@ -52,7 +63,7 @@ struct NPN {
     int best_neg;
     std::uint16_t canon;
 
-    NPN();
+    NPN() = default;
     NPN(int* bp, int* bm, int bn, std::uint16_t c) :
         best_neg(bn), canon(c) { 
             for(int i = 0; i < 4; ++i) {
@@ -97,7 +108,7 @@ class aigGraph {
         std::vector<int> _pos;
         std::unordered_map<std::uint64_t, int> _hashedNodes;
 
-        std::uint64_t make_lit(int index);
+        std::uint64_t and_key(int index);
 
         Cut upper_cut(Cut ca, Cut cb);
         bool same_cut(Cut ca, Cut cb);
