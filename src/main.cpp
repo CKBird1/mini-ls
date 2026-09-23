@@ -1,14 +1,20 @@
 #include "aig.hpp"
+#include "rwlib.hpp"
 
 #include <iostream>
 #include <sstream>
 #include <string>
 #include <vector>
 
+static const char* kNpnPath = "data/npn4.txt";
+
 static void usage(const char* argv0) {
     std::cerr << "usage: " << argv0 << " <in.aig> [out.aig] [-c <cmds>]\n"
+              << "       " << argv0 << " --gen-npn <file>\n"
               << "  -c, --commands   space-separated commands, run in order (repeatable)\n"
-              << "  commands:        balance, rewrite\n";
+              << "  commands:        balance, rewrite\n"
+              << "  --gen-npn FILE   write NPN class table and exit\n"
+              << "  --npn FILE       class table for rewrite (default data/npn4.txt)\n";
 } //If not self-explanitory, wanted to represent an abc-style "open netlist -> perform operations -> print_stats" loop.
 //mini-ls path/to/design.aig outfile.aig -c "balance rewrite" ((<-- that command will call print_stats automatically at the end and close))
 //There is a limitation where I cannot easily/cleanly open netlist and then wait for commands one at a time, it feels
@@ -37,6 +43,8 @@ static void run_command(aigGraph& g, const std::string& cmd) {
 int main(int argc, char** argv) {
     const char* in_path = nullptr;
     const char* out_path = nullptr;
+    const char* gen_npn_path = nullptr;
+    const char* npn_path = kNpnPath;
     std::vector<std::string> commands;
 
     for (int i = 1; i < argc; ++i) {
@@ -44,6 +52,24 @@ int main(int argc, char** argv) {
         if (a == "-h" || a == "--help") {
             usage(argv[0]);
             return 0;
+        }
+        if (a == "--gen-npn") {
+            if (i + 1 >= argc) {
+                std::cerr << "error: " << a << " requires an argument\n";
+                usage(argv[0]);
+                return 1;
+            }
+            gen_npn_path = argv[++i];
+            continue;
+        }
+        if (a == "--npn") {
+            if (i + 1 >= argc) {
+                std::cerr << "error: " << a << " requires an argument\n";
+                usage(argv[0]);
+                return 1;
+            }
+            npn_path = argv[++i];
+            continue;
         }
         if (a == "-c" || a == "--commands") {
             if (i + 1 >= argc) {
@@ -71,6 +97,19 @@ int main(int argc, char** argv) {
         }
     }
 
+    if (gen_npn_path) {
+        RwLib& lib = RwLib::instance();
+        if (!lib.generate_npn(gen_npn_path)) {
+            if (lib.num_classes() == 0)
+                std::cerr << "error: generate_npn produced no classes (fill RwLib::generate_npn)\n";
+            else
+                std::cerr << "error: cannot write NPN classes to '" << gen_npn_path << "'\n";
+            return 1;
+        }
+        std::cout << "wrote " << lib.num_classes() << " NPN classes to " << gen_npn_path << '\n';
+        return 0;
+    }
+
     if (!in_path) {
         usage(argv[0]);
         return 1;
@@ -83,6 +122,13 @@ int main(int argc, char** argv) {
             return 1;
         }
     }
+
+    bool want_rewrite = false;
+    for (const auto& cmd : commands) {
+        if (cmd == "rewrite") want_rewrite = true;
+    }
+    if (want_rewrite)
+        RwLib::instance().load_npn(npn_path);
 
     aigGraph g;
     if (!g.read_aiger(in_path))

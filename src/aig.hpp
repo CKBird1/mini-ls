@@ -73,6 +73,7 @@ struct NPN {
         }  
 };
 
+NPN npn_canon(std::uint16_t tt); //I don't like floating declarations like this, but for now it's ok.
 struct RwGraph;
 
 class aigGraph {
@@ -117,6 +118,5 @@ class aigGraph {
         void enumerate_cuts(std::vector<std::vector<Cut>>& cuts_by_node);
         std::uint16_t eval_tt(std::vector<int>& tts, int id);
         std::uint16_t cut_tt(Cut c, int id);
-        NPN canon_tt(Cut c);
         std::uint32_t build_rwgraph(const RwGraph& g, const Cut& cut);
 };

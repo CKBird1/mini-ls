@@ -100,8 +100,7 @@ std::uint16_t aigGraph::eval_tt(std::vector<int> &tts, int id) {
     return result;
 }
 
-NPN aigGraph::canon_tt(Cut c) {
-    std::uint16_t orig_tt = c.tt; //Make copy so we don't overwrite 
+NPN npn_canon(std::uint16_t orig_tt) {
     std::uint16_t best = 0xFFFF;
     int best_perm[4], best_mask[4], best_neg;
 
@@ -178,7 +177,7 @@ std::uint32_t aigGraph::build_rwgraph(const RwGraph& g, const Cut& cut) {
 
 void aigGraph::rewrite() {
     RwLib& lib = RwLib::instance();
-    lib.load_hand();
+    lib.load_hand(); //Test for hand-made examples
 
     std::vector<std::vector<Cut>> cuts_by_node;
     cuts_by_node.resize(_nodes.size());
@@ -192,10 +191,9 @@ void aigGraph::rewrite() {
             if(curr_cut.nLeaves == 1 && curr_cut.leaf[0] == nid) continue;
             std::uint16_t new_tt = cut_tt(curr_cut, nid);
             curr_cut.tt = new_tt;
-            NPN npn = canon_tt(curr_cut);
-            (void)npn;
+            NPN npn = npn_canon(curr_cut.tt);
 
-            const std::vector<RwGraph>* graphs = lib.find(curr_cut.tt);
+            const std::vector<RwGraph>* graphs = lib.find(npn.canon);
             if (!graphs) continue;
             for (const RwGraph& g : *graphs) {
                 build_rwgraph(g, curr_cut);
@@ -204,6 +202,7 @@ void aigGraph::rewrite() {
         }
     }
     clean_dangling();
-    std::cout << "hand rwlib: graphs = " << lib.size()
+    std::cout << "npn classes = " << lib.num_classes()
+              << "  hand rwlib: graphs = " << lib.size()
               << "  matched cuts = " << hits << '\n';
 }

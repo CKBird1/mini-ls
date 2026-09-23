@@ -17,7 +17,8 @@ void RwLib::load_hand() {
     xor_ab.fanin0[2] = make_lit(4, true);
     xor_ab.fanin1[2] = make_lit(5, true);
     xor_ab.root = make_lit(6, false);
-    _graphs[0x6666].push_back(xor_ab);
+    NPN n = npn_canon(0x6666);
+    _graphs[n.canon].push_back(xor_ab);
 
     // a & (b | c)  (tt 0xA8A8).
     // n4 = ~b & ~c     = NOR(b,c)
@@ -29,5 +30,6 @@ void RwLib::load_hand() {
     a_and_b_or_c.fanin0[1] = make_lit(0, false);
     a_and_b_or_c.fanin1[1] = make_lit(4, true);
     a_and_b_or_c.root = make_lit(5, false);
-    _graphs[0xA8A8].push_back(a_and_b_or_c);
+    NPN nn = npn_canon(0xA8A8);
+    _graphs[nn.canon].push_back(a_and_b_or_c);
 }
