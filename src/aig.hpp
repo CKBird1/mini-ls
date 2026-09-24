@@ -105,7 +105,10 @@ class aigGraph {
         std::uint16_t cut_tt(Cut c, int id, bool& ok);
         bool mffc_process_node(int nid, std::vector<int>& nof);
         int mffc_size(int nid);
-        void map_npn_leaves(const Cut& cut, const NPN& cut_npn, const RwGraph& g, std::uint32_t leaf_lit[4]);
+        void map_npn_leaves(const Cut& cut, const NPN& cut_npn, std::uint32_t leaf_lit[4]);
         std::uint32_t build_rwgraph(const RwGraph& g, const std::uint32_t leaf_lit[4]);
+        void rollback_rwgraph(int mark);
+        void check_delete(int nid, std::vector<int>& node_is_dead);
+        void clean_mffc(int nid);
         void swing(int nid, std::uint32_t new_root);
 };

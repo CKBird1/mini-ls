@@ -44,6 +44,10 @@ public:
     void load_hand();
     bool generate_npn(const char* path);
     bool load_npn(const char* path);
+    // 4-input AIGs up to max_ands ANDs. Keeps several cones per
+    // NPN class, defined in src/rwgen.cpp
+    bool generate_graphs(const char* path, int max_ands = 5);
+    bool load_graphs(const char* path);
 
     const std::vector<RwGraph>* find(std::uint16_t tt) const {
         auto it = _graphs.find(tt);

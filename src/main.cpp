@@ -1,12 +1,14 @@
 #include "aig.hpp"
 #include "rwlib.hpp"
 
+#include <cstdlib>
 #include <iostream>
 #include <sstream>
 #include <string>
 #include <vector>
 
 static const char* kNpnPath = "data/npn4.txt";
+static const char* kRwlibPath = "data/rwlib4.txt";
 
 static void usage(const char* argv0) {
     std::cerr << "usage: " << argv0 << " <in.aig> [out.aig] [-c <cmds>]\n"
@@ -14,7 +16,10 @@ static void usage(const char* argv0) {
               << "  -c, --commands   space-separated commands, run in order (repeatable)\n"
               << "  commands:        balance, rewrite\n"
               << "  --gen-npn FILE   write NPN class table and exit\n"
-              << "  --npn FILE       class table for rewrite (default data/npn4.txt)\n";
+              << "  --gen-rwlib FILE write generated 4-input subgraphs and exit\n"
+              << "  --max-ands N     AND cap for --gen-rwlib (default 5, max 8)\n"
+              << "  --npn FILE       class table for rewrite (default data/npn4.txt)\n"
+              << "  --rwlib FILE     subgraph library for rewrite (default data/rwlib4.txt)\n";
 } //If not self-explanitory, wanted to represent an abc-style "open netlist -> perform operations -> print_stats" loop.
 //mini-ls path/to/design.aig outfile.aig -c "balance rewrite" ((<-- that command will call print_stats automatically at the end and close))
 //There is a limitation where I cannot easily/cleanly open netlist and then wait for commands one at a time, it feels
@@ -44,7 +49,10 @@ int main(int argc, char** argv) {
     const char* in_path = nullptr;
     const char* out_path = nullptr;
     const char* gen_npn_path = nullptr;
+    const char* gen_rwlib_path = nullptr;
     const char* npn_path = kNpnPath;
+    const char* rwlib_path = kRwlibPath;
+    int gen_max_ands = 5;
     std::vector<std::string> commands;
 
     for (int i = 1; i < argc; ++i) {
@@ -62,6 +70,30 @@ int main(int argc, char** argv) {
             gen_npn_path = argv[++i];
             continue;
         }
+        if (a == "--gen-rwlib") {
+            if (i + 1 >= argc) {
+                std::cerr << "error: " << a << " requires an argument\n";
+                usage(argv[0]);
+                return 1;
+            }
+            gen_rwlib_path = argv[++i];
+            continue;
+        }
+        if (a == "--max-ands") {
+            if (i + 1 >= argc) {
+                std::cerr << "error: " << a << " requires an argument\n";
+                usage(argv[0]);
+                return 1;
+            }
+            char* end = nullptr;
+            long v = std::strtol(argv[++i], &end, 10);
+            if (end == argv[i] || *end || v < 1 || v > 8) {
+                std::cerr << "error: --max-ands must be 1..8\n";
+                return 1;
+            }
+            gen_max_ands = (int)v;
+            continue;
+        }
         if (a == "--npn") {
             if (i + 1 >= argc) {
                 std::cerr << "error: " << a << " requires an argument\n";
@@ -69,6 +101,15 @@ int main(int argc, char** argv) {
                 return 1;
             }
             npn_path = argv[++i];
+            continue;
+        }
+        if (a == "--rwlib") {
+            if (i + 1 >= argc) {
+                std::cerr << "error: " << a << " requires an argument\n";
+                usage(argv[0]);
+                return 1;
+            }
+            rwlib_path = argv[++i];
             continue;
         }
         if (a == "-c" || a == "--commands") {
@@ -110,6 +151,17 @@ int main(int argc, char** argv) {
         return 0;
     }
 
+    if (gen_rwlib_path) {
+        RwLib& lib = RwLib::instance();
+        if (!lib.generate_graphs(gen_rwlib_path, gen_max_ands)) {
+            std::cerr << "error: generate_graphs produced nothing or cannot write '"
+                      << gen_rwlib_path << "'\n";
+            return 1;
+        }
+        std::cout << "wrote " << lib.size() << " NPN-class subgraphs to " << gen_rwlib_path << '\n';
+        return 0;
+    }
+
     if (!in_path) {
         usage(argv[0]);
         return 1;
@@ -127,8 +179,17 @@ int main(int argc, char** argv) {
     for (const auto& cmd : commands) {
         if (cmd == "rewrite") want_rewrite = true;
     }
-    if (want_rewrite)
-        RwLib::instance().load_npn(npn_path);
+    if (want_rewrite) {
+        RwLib& lib = RwLib::instance();
+        if (!lib.load_npn(npn_path)) {
+            std::cerr << "error: cannot load NPN classes from '" << npn_path << "'\n";
+            return 1;
+        }
+        if (!lib.load_graphs(rwlib_path)) {
+            std::cerr << "error: cannot load rewrite subgraphs from '" << rwlib_path << "'\n";
+            return 1;
+        }
+    }
 
     aigGraph g;
     if (!g.read_aiger(in_path))

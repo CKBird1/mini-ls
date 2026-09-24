@@ -1,5 +1,5 @@
 CXX      ?= g++
-CXXFLAGS ?= -std=c++17 -g -O0 -Wall -Wextra -Wpedantic -Isrc
+CXXFLAGS ?= -std=c++17 -g -O2 -Wall -Wextra -Wpedantic -Isrc
 CXXFLAGS += -MMD -MP
 LDFLAGS  ?=
 

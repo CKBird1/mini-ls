@@ -68,3 +68,53 @@ bool RwLib::load_npn(const char* path) {
     if(expected >= 0 && (int)_classes.size() != expected) return false;
     return !_classes.empty();
 }
+
+bool RwLib::load_graphs(const char* path) {
+    std::ifstream in(path);
+    if (!in) return false;
+
+    _graphs.clear();
+    std::string line;
+    int expected = -1;
+    while (std::getline(in, line)) {
+        if (line.empty() || line[0] == '#') continue;
+        char* end = nullptr;
+        if (expected < 0) {
+            expected = (int)std::strtol(line.c_str(), &end, 10);
+            if (end == line.c_str()) return false;
+            continue;
+        }
+
+        const char* p = line.c_str();
+        unsigned long canon = std::strtoul(p, &end, 16);
+        if (end == p || canon > 0xFFFFul) return false;
+        p = end;
+
+        long nAnds = std::strtol(p, &end, 10);
+        if (end == p || nAnds < 1 || nAnds > 8) return false;
+        p = end;
+
+        unsigned long root = std::strtoul(p, &end, 10);
+        if (end == p) return false;
+        p = end;
+
+        RwGraph g;
+        g.nAnds = (int)nAnds;
+        g.root = (std::uint32_t)root;
+        g.npn = NPN();
+        g.npn.canon = (std::uint16_t)canon;
+        for (int i = 0; i < g.nAnds; ++i) {
+            unsigned long f0 = std::strtoul(p, &end, 10);
+            if (end == p) return false;
+            p = end;
+            unsigned long f1 = std::strtoul(p, &end, 10);
+            if (end == p) return false;
+            p = end;
+            g.fanin0[i] = (std::uint32_t)f0;
+            g.fanin1[i] = (std::uint32_t)f1;
+        }
+        _graphs[(std::uint16_t)canon].push_back(g);
+    }
+    if (expected >= 0 && (int)_graphs.size() != expected) return false;
+    return !_graphs.empty();
+}

@@ -119,7 +119,7 @@ std::uint16_t aigGraph::eval_tt(std::vector<int> &tts, int id, bool& ok) {
 
 NPN npn_canon(std::uint16_t orig_tt) {
     std::uint16_t best = 0xFFFF;
-    int best_perm[4], best_mask[4], best_neg;
+    int best_perm[4], best_mask[4], best_neg = 0;
 
     //Now loop over all 3 of those nested, and inside each rebuild the 16 bits, compare to best, and then decide to keep or not
     for(int m = 0; m < 16; ++m) { //The 16 masks for bit inversion
@@ -214,28 +214,29 @@ int aigGraph::mffc_size(int nid) {
     return num_nodes_removed;
 }
 
-void aigGraph::map_npn_leaves(const Cut& cut, const NPN& cut_npn, const RwGraph& g, std::uint32_t leaf_lit[4]) {
+void aigGraph::map_npn_leaves(const Cut& cut, const NPN& cut_npn, std::uint32_t leaf_lit[4]) {
+    // Can now assume canon because the generator outputs canon
+    for (int i = 0; i < 4; ++i) {
+        int p = cut_npn.best_perm[i];
+        leaf_lit[i] = (p < cut.nLeaves) ? make_lit(cut.leaf[p], cut_npn.best_mask[p]) : 0;
+    }
+
     /*
-     Mapping when recipes are stored in canon slot order (abc style)
-    
-     for (int i = 0; i < 4; ++i) {
-         leaf_lit[i] = (npn.best_perm[i] < cut.nLeaves) ? make_lit(cut.leaf[npn.best_perm[i]], npn.best_mask[npn.best_perm[i]]) : 0;
-    }
+     for load_hand only, this was a workaround for the way I chose to write
+     load_hand rather than the 'correct' solution which I waited for graph
+     generation to make (above)
+
+     int inv_r[4];
+     for (int k = 0; k < 4; ++k)
+         inv_r[g.npn.best_perm[k]] = k;
+     for (int j = 0; j < 4; ++j) {
+         int k = inv_r[j];
+         int p = cut_npn.best_perm[k];
+         leaf_lit[j] = (p < cut.nLeaves)
+             ? make_lit(cut.leaf[p], cut_npn.best_mask[p] ^ g.npn.best_mask[j])
+             : 0;
+     }
      */
-
-    // Jumping through some hoops to make my hand-written sub graphs workable. Will go back to the above (correct imo) when I have fully generated
-    int inv_r[4];
-    for (int k = 0; k < 4; ++k)
-        inv_r[g.npn.best_perm[k]] = k;
-
-    for (int j = 0; j < 4; ++j) {
-        int k = inv_r[j];
-        int p = cut_npn.best_perm[k];
-        if (p < cut.nLeaves)
-            leaf_lit[j] = make_lit(cut.leaf[p], cut_npn.best_mask[p] ^ g.npn.best_mask[j]);
-        else
-            leaf_lit[j] = 0;
-    }
 }
 
 std::uint32_t aigGraph::build_rwgraph(const RwGraph& g, const std::uint32_t leaf_lit[4]) {
@@ -289,10 +290,98 @@ void aigGraph::swing(int nid, std::uint32_t new_root) {
     }
 }
 
+static bool in_tfo(const std::vector<aigNode>& nodes, int src, int dst) {
+    if (src == dst) return true;
+    if (src < 0 || dst < 0) return false;
+    std::vector<char> seen(nodes.size(), 0);
+    std::vector<int> w;
+    w.push_back(src);
+    seen[(std::size_t)src] = 1;
+    for (std::size_t i = 0; i < w.size(); ++i) {
+        int id = w[i];
+        if ((std::size_t)id >= nodes.size()) continue;
+        for (int u : nodes[(std::size_t)id].fanouts) {
+            if (u < 0 || (std::size_t)u >= nodes.size() || seen[(std::size_t)u])
+                continue;
+            if (u == dst) return true;
+            seen[(std::size_t)u] = 1;
+            w.push_back(u);
+        }
+    }
+    return false;
+}
+
+void aigGraph::rollback_rwgraph(int mark) {
+    // Remove all trial nodes from _nodes, _hashedNodes, and fanouts
+    while ((int)_nodes.size() > mark) {
+        int id = (int)_nodes.size() - 1;
+        _hashedNodes.erase(and_key(id));
+        int a = _nodes[id].input_a;
+        int b = _nodes[id].input_b;
+        if (a >= 0) {
+            std::vector<int>& fo = _nodes[a].fanouts;
+            for (int i = (int)fo.size() - 1; i >= 0; --i)
+                if (fo[i] == id) fo.erase(fo.begin() + i);
+        }
+        if (b >= 0) {
+            std::vector<int>& fo = _nodes[b].fanouts;
+            for (int i = (int)fo.size() - 1; i >= 0; --i)
+                if (fo[i] == id) fo.erase(fo.begin() + i);
+        }
+        _nodes.pop_back();
+    }
+}
+
+void aigGraph::check_delete(int nid, std::vector<int>& node_is_dead) {    
+    bool kill = true;
+    int fanin = _nodes[nid].input_a;
+    if(!_nodes[fanin].tombstone && !_nodes[fanin].isPi && !_nodes[fanin].isConst) {
+        for(int i = 0; i < (int)_nodes[fanin].fanouts.size(); ++i) {
+            if(!_nodes[_nodes[fanin].fanouts[i]].tombstone) {
+                kill = false;
+                break; //This is not dead, cannot delete
+            }
+        }
+        if(kill) {
+            node_is_dead.push_back(fanin);
+            _nodes[fanin].tombstone = true;
+            _hashedNodes.erase(and_key(fanin));
+        }
+    }
+    kill = true;
+    fanin = _nodes[nid].input_b;
+    if(!_nodes[fanin].tombstone && !_nodes[fanin].isPi && !_nodes[fanin].isConst) {   
+        for(int i = 0; i < (int)_nodes[fanin].fanouts.size(); ++i) {
+            if(!_nodes[_nodes[fanin].fanouts[i]].tombstone) {
+                kill = false;
+                break; //This is not dead, cannot delete
+            }
+        }
+        if(kill) {
+            node_is_dead.push_back(fanin);
+            _nodes[fanin].tombstone = true;
+            _hashedNodes.erase(and_key(fanin));
+        }
+    }
+}
+
+void aigGraph::clean_mffc(int nid) {
+    //Old cone still needs to be fully removed so we don't accidentally use it later
+    std::vector<int> node_is_dead;
+    node_is_dead.push_back(nid);
+    _nodes[nid].tombstone = true;
+    _hashedNodes.erase(and_key(nid));
+
+    while(!node_is_dead.empty()) {
+        int cid = node_is_dead.back();
+        node_is_dead.pop_back();
+        check_delete(cid, node_is_dead);
+    }
+}
+
 void aigGraph::rewrite() {
     rebuild_fanouts();
     RwLib& lib = RwLib::instance();
-    lib.load_hand(); //Test for hand-made examples
 
     std::vector<std::vector<Cut>> cuts_by_node;
     cuts_by_node.resize(_nodes.size());
@@ -304,7 +393,9 @@ void aigGraph::rewrite() {
 
         int deleted = mffc_size(nid);
         int best_gain = 0;
-        std::uint32_t best_root = 0;
+        int best_n = 0;
+        const RwGraph* best_rwgraph = nullptr;
+        std::uint32_t best_leaf_lit[4];
 
         for(int cid = 0; (std::size_t)cid < cuts_by_node[nid].size(); ++cid) {
             Cut& curr_cut = cuts_by_node[nid][cid];
@@ -319,26 +410,39 @@ void aigGraph::rewrite() {
             if (!graphs) continue;
             for (const RwGraph& g : *graphs) {
                 std::uint32_t leaf_lit[4];
-                map_npn_leaves(curr_cut, npn, g, leaf_lit);
+                map_npn_leaves(curr_cut, npn, leaf_lit);
 
                 int before = (int)_nodes.size();
                 std::uint32_t new_root = build_rwgraph(g, leaf_lit);
-                new_root ^= (std::uint32_t)(npn.best_neg ^ g.npn.best_neg);
+                new_root ^= (std::uint32_t)npn.best_neg;
                 int added = (int)_nodes.size() - before;
                 int gain = deleted - added;
 
+                // Check if what we're trying to swing in will create a cycle or no-op
+                if (in_tfo(_nodes, nid, lit_id(new_root))) {
+                    rollback_rwgraph(before);
+                    continue;
+                }
+
                 if (gain > best_gain) {
                     best_gain = gain;
-                    best_root = new_root;
+                    best_n = (std::uint32_t)npn.best_neg;
+                    best_rwgraph = &g;
+                    for(int p = 0; p < 4; p++) best_leaf_lit[p] = leaf_lit[p];
                 }
                 ++hits;
+                rollback_rwgraph(before);
             }
         }
-        if (best_gain > 0 && (lit_id(best_root) != nid || lit_inv(best_root)))
-            swing(nid, best_root);
+        if (best_gain > 0) {
+            std::uint32_t final_root = build_rwgraph(*best_rwgraph, best_leaf_lit);
+            final_root ^= best_n;
+            swing(nid, final_root);
+            clean_mffc(nid);
+        }
     }
     clean_dangling();
     std::cout << "npn classes = " << lib.num_classes()
-              << "  hand rwlib: graphs = " << lib.size()
+              << "  rwlib classes = " << lib.size()
               << "  matched cuts = " << hits << '\n';
 }
