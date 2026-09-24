@@ -158,10 +158,73 @@ NPN npn_canon(std::uint16_t orig_tt) {
     return npn;
 }
 
-std::uint32_t aigGraph::build_rwgraph(const RwGraph& g, const Cut& cut) {
+bool aigGraph::mffc_process_node(int nid, std::vector<int>& nof) {
+    //return true if we should process this node next, otherwise add/decrement from fanouts remaining
+    if(_nodes[nid].isPi || _nodes[nid].isConst || _nodes[nid].tombstone) return false;
+
+    if(nof[nid] == -1) nof[nid] = (int)_nodes[nid].fanouts.size() - 1;
+    else nof[nid] = nof[nid] - 1;
+    
+    if(nof[nid] == 0) return true;
+    
+    return false;
+}
+
+int aigGraph::mffc_size(int nid) {
+    //Nodes that die if nid is replaced
+    //walk toward PI along fanins -> if each fanin has fanout size of 1, we're guaranteed it's within the cone
+    //Stop walking a given path when fanout > 1 because it's driving something outside this cone, it's now a leaf
+    //doesn't really matter how many leaves we find, just need to know how many nodes are no longer used
+
+    int num_nodes_removed = 0;
+    std::vector<int> number_of_fanouts((int)_nodes.size(), -1); //If a node is processed and eventually has 0 fanouts, put it into nodes to process as a non-leaf. 
+    std::vector<int> nodes_to_process;
+    nodes_to_process.push_back(nid); //Seed the worklist
+
+    while(nodes_to_process.size() != 0) {
+        int cNode = nodes_to_process.back();
+        nodes_to_process.pop_back();
+        num_nodes_removed++;
+
+        int fanin = _nodes[cNode].input_a;
+        if(mffc_process_node(fanin, number_of_fanouts)) nodes_to_process.push_back(fanin);
+         
+
+        fanin = _nodes[cNode].input_b;
+        if(mffc_process_node(fanin, number_of_fanouts)) nodes_to_process.push_back(fanin);
+    }    
+
+    return num_nodes_removed;
+}
+
+void aigGraph::map_npn_leaves(const Cut& cut, const NPN& cut_npn, const RwGraph& g, std::uint32_t leaf_lit[4]) {
+    /*
+     Mapping when recipes are stored in canon slot order (abc style)
+    
+     for (int i = 0; i < 4; ++i) {
+         leaf_lit[i] = (npn.best_perm[i] < cut.nLeaves) ? make_lit(cut.leaf[npn.best_perm[i]], npn.best_mask[npn.best_perm[i]]) : 0;
+    }
+     */
+
+    // Jumping through some hoops to make my hand-written sub graphs workable. Will go back to the above (correct imo) when I have fully generated
+    int inv_r[4];
+    for (int k = 0; k < 4; ++k)
+        inv_r[g.npn.best_perm[k]] = k;
+
+    for (int j = 0; j < 4; ++j) {
+        int k = inv_r[j];
+        int p = cut_npn.best_perm[k];
+        if (p < cut.nLeaves)
+            leaf_lit[j] = make_lit(cut.leaf[p], cut_npn.best_mask[p] ^ g.npn.best_mask[j]);
+        else
+            leaf_lit[j] = 0;
+    }
+}
+
+std::uint32_t aigGraph::build_rwgraph(const RwGraph& g, const std::uint32_t leaf_lit[4]) {
     std::uint32_t node_lit[12];
     for (int i = 0; i < 4; ++i)
-        node_lit[i] = make_lit(cut.leaf[i], false);
+        node_lit[i] = leaf_lit[i];
 
     auto rec_to_net = [&](std::uint32_t rec) {
         return node_lit[lit_id(rec)] ^ (std::uint32_t)lit_inv(rec);
@@ -175,7 +238,14 @@ std::uint32_t aigGraph::build_rwgraph(const RwGraph& g, const Cut& cut) {
     return rec_to_net(g.root);
 }
 
+void aigGraph::swing(int nid, std::uint32_t new_root) {
+    (void)nid;
+    (void)new_root;
+    // Fill: retarget every fanout of nid to new_root.
+}
+
 void aigGraph::rewrite() {
+    rebuild_fanouts();
     RwLib& lib = RwLib::instance();
     lib.load_hand(); //Test for hand-made examples
 
@@ -186,6 +256,11 @@ void aigGraph::rewrite() {
     int hits = 0;
     for(int nid = 0; (std::size_t)nid < cuts_by_node.size(); ++nid) {
         if(_nodes[nid].isPi || _nodes[nid].isPo || _nodes[nid].isConst || _nodes[nid].tombstone) continue;
+
+        int deleted = mffc_size(nid);
+        int best_gain = 0;
+        std::uint32_t best_root = 0;
+
         for(int cid = 0; (std::size_t)cid < cuts_by_node[nid].size(); ++cid) {
             Cut& curr_cut = cuts_by_node[nid][cid];
             if(curr_cut.nLeaves == 1 && curr_cut.leaf[0] == nid) continue;
@@ -196,10 +271,24 @@ void aigGraph::rewrite() {
             const std::vector<RwGraph>* graphs = lib.find(npn.canon);
             if (!graphs) continue;
             for (const RwGraph& g : *graphs) {
-                build_rwgraph(g, curr_cut);
+                std::uint32_t leaf_lit[4];
+                map_npn_leaves(curr_cut, npn, g, leaf_lit);
+
+                int before = (int)_nodes.size();
+                std::uint32_t new_root = build_rwgraph(g, leaf_lit);
+                new_root ^= (std::uint32_t)(npn.best_neg ^ g.npn.best_neg);
+                int added = (int)_nodes.size() - before;
+                int gain = deleted - added;
+
+                if (gain > best_gain) {
+                    best_gain = gain;
+                    best_root = new_root;
+                }
                 ++hits;
             }
         }
+        if (best_gain > 0)
+            swing(nid, best_root);
     }
     clean_dangling();
     std::cout << "npn classes = " << lib.num_classes()

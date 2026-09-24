@@ -4,6 +4,7 @@
 #include <utility>
 
 void aigGraph::balance() {
+    rebuild_fanouts();
     //Step 1, iterate over all nodes, if not PO, add their personal literal to a new vector size of nodes
     std::vector<std::uint32_t> repl(_nodes.size());
     std::vector<int> old_fanout(_nodes.size());

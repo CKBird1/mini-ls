@@ -4,13 +4,33 @@
 #include <unordered_map>
 #include <vector>
 
-// Recipe ids 0,1,2,3 are the cut leaves a,b,c,d. Ids 4,5,... are ANDs in order.
-// Fanins and root are make_lit(id, inv), same encoding as the rest of the AIG.
+struct NPN {
+    int best_perm[4];
+    int best_mask[4];
+    int best_neg;
+    std::uint16_t canon;
+
+    NPN() : best_perm{0, 1, 2, 3}, best_mask{0, 0, 0, 0}, best_neg(0), canon(0) {}
+    NPN(int* bp, int* bm, int bn, std::uint16_t c) :
+        best_neg(bn), canon(c) {
+            for(int i = 0; i < 4; ++i) {
+                best_perm[i] = bp[i];
+                best_mask[i] = bm[i];
+            }
+        }
+};
+
+NPN npn_canon(std::uint16_t tt);
+
+// Recipe ids 0, 1, 2, 3 are this graph's leaves a,b,c,d in slot order.
+// npn is npn_canon of the function as drawn (slots 0,1,2,3), used to
+// compose with the cut's NPN when instantiating. Fanins/root are make_lit.
 struct RwGraph {
     int nAnds = 0;
     std::uint32_t fanin0[8] = {};
     std::uint32_t fanin1[8] = {};
     std::uint32_t root = 0;
+    NPN npn;
 };
 
 // Now that all 222 have been dumped, read-only after load

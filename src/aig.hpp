@@ -57,24 +57,8 @@ struct Cut {
     std::uint16_t tt;
 };
 
-struct NPN {
-    int best_perm[4];
-    int best_mask[4];
-    int best_neg;
-    std::uint16_t canon;
-
-    NPN() = default;
-    NPN(int* bp, int* bm, int bn, std::uint16_t c) :
-        best_neg(bn), canon(c) { 
-            for(int i = 0; i < 4; ++i) {
-                best_perm[i] = bp[i];
-                best_mask[i] = bm[i];
-            }
-        }  
-};
-
-NPN npn_canon(std::uint16_t tt); //I don't like floating declarations like this, but for now it's ok.
 struct RwGraph;
+struct NPN;
 
 class aigGraph {
     
@@ -112,11 +96,16 @@ class aigGraph {
         std::unordered_map<std::uint64_t, int> _hashedNodes;
 
         std::uint64_t and_key(int index);
+        void rebuild_fanouts();
 
         Cut upper_cut(Cut ca, Cut cb);
         bool same_cut(Cut ca, Cut cb);
         void enumerate_cuts(std::vector<std::vector<Cut>>& cuts_by_node);
         std::uint16_t eval_tt(std::vector<int>& tts, int id);
         std::uint16_t cut_tt(Cut c, int id);
-        std::uint32_t build_rwgraph(const RwGraph& g, const Cut& cut);
+        bool mffc_process_node(int nid, std::vector<int>& nof);
+        int mffc_size(int nid);
+        void map_npn_leaves(const Cut& cut, const NPN& cut_npn, const RwGraph& g, std::uint32_t leaf_lit[4]);
+        std::uint32_t build_rwgraph(const RwGraph& g, const std::uint32_t leaf_lit[4]);
+        void swing(int nid, std::uint32_t new_root);
 };

@@ -84,6 +84,20 @@ int aigGraph::max_lev() {
     return lev;
 }
 
+void aigGraph::rebuild_fanouts() {
+    //Whenever we work with the AIG Netlist, we want to make sure it's still correctly mapped
+    //Clear all fanouts -> walk the netlist to map fanouts only when a nodes fanins still use them
+    //Ensures that all dangling, and other objects don't interfere with normal function
+    for (int i = 0; (std::size_t)i < _nodes.size(); ++i)
+        _nodes[i].fanouts.clear();
+
+    for (int n = 0; (std::size_t)n < _nodes.size(); ++n) {
+        if (_nodes[n].tombstone) continue;
+        if (_nodes[n].input_a >= 0) _nodes[_nodes[n].input_a].fanouts.push_back(n);
+        if (_nodes[n].input_b >= 0) _nodes[_nodes[n].input_b].fanouts.push_back(n);
+    }
+}
+
 void aigGraph::clean_dangling() {
     std::vector<char> seen(_nodes.size(), 0);
     std::queue<int> work;
