@@ -78,22 +78,39 @@ void aigGraph::enumerate_cuts(std::vector<std::vector<Cut>>& cuts_by_node) {
     }
 }
 
-std::uint16_t aigGraph::cut_tt(Cut c, int id) {
+std::uint16_t aigGraph::cut_tt(Cut c, int id, bool& ok) {
     std::vector<int> starters = {0xAAAA, 0xCCCC, 0xF0F0, 0xFF00}; //Initialize 4-bit truth-table worthy inputs to each leaf
     std::vector<int> tts((int)_nodes.size(), -1);
-    for(int i = 0; i < c.nLeaves; ++i) tts[c.leaf[i]] = starters[i];
+    ok = true;
+    for(int i = 0; i < c.nLeaves; ++i) {
+        int leaf = c.leaf[i];
+        if (leaf < 0 || (std::size_t)leaf >= tts.size()) {
+            ok = false;
+            return 0;
+        }
+        tts[leaf] = starters[i];
+    }
 
-    std::uint16_t curr_tt = eval_tt(tts, id); //Recursive call, it travels 'up' the fanins until it hits the leaves, then back down to build this tt
+    std::uint16_t curr_tt = eval_tt(tts, id, ok); //Recursive call, it travels 'up' the fanins until it hits the leaves, then back down to build this tt
     return curr_tt;
 }
 
 
-std::uint16_t aigGraph::eval_tt(std::vector<int> &tts, int id) {
-    if(tts[id] != -1) return tts[id];
+std::uint16_t aigGraph::eval_tt(std::vector<int> &tts, int id, bool& ok) {
+    if (!ok) return 0;
+    if (id < 0 || (std::size_t)id >= tts.size() || (std::size_t)id >= _nodes.size()) {
+        ok = false;
+        return 0;
+    }
+    if (tts[id] != -1) return tts[id];
+    if (_nodes[id].isPi || _nodes[id].isConst || _nodes[id].tombstone || _nodes[id].isPo) {
+        ok = false;
+        return 0;
+    }
 
-    int fanina = eval_tt(tts, _nodes[id].input_a);
+    int fanina = eval_tt(tts, _nodes[id].input_a, ok);
     if(_nodes[id].invert_a) fanina = (~fanina) & 0xFFFF; //Invert and then mask the upper 16
-    int faninb = eval_tt(tts, _nodes[id].input_b);
+    int faninb = eval_tt(tts, _nodes[id].input_b, ok);
     if(_nodes[id].invert_b) faninb = (~faninb) & 0xFFFF;
     int result = fanina & faninb;
     tts[id] = result;
@@ -239,9 +256,37 @@ std::uint32_t aigGraph::build_rwgraph(const RwGraph& g, const std::uint32_t leaf
 }
 
 void aigGraph::swing(int nid, std::uint32_t new_root) {
-    (void)nid;
-    (void)new_root;
-    // Fill: retarget every fanout of nid to new_root.
+    //int nid is the OLD node that is going to be disconnected, all of its fanouts need to be transferred over to the new_root
+    //also, all the fanins of the items on that fanout list need to be rewritted to new_root assuming they used to be nid (don't change non-nid fanins)
+    //new_root needs to be converted out of literal: id -> lit_id(new_root), inv -> lit_inv(new_root) XOR old_invert
+
+    int new_id = lit_id(new_root);
+    bool new_inv = lit_inv(new_root);
+
+    std::vector<int> old_fanouts = _nodes[nid].fanouts;
+    _nodes[nid].fanouts.clear();
+    _nodes[new_id].fanouts.insert(_nodes[new_id].fanouts.end(), old_fanouts.begin(), old_fanouts.end());
+
+    for(int i = 0; i < (int)old_fanouts.size(); ++i) {
+        int user = old_fanouts[i];
+        int in_a = _nodes[user].input_a;
+        int in_b = _nodes[user].input_b;
+
+        if(!_nodes[user].isPo) {
+            _hashedNodes.erase(and_key(user));
+        }
+        if((in_a != -1) && (in_a == nid)) {
+            _nodes[user].input_a = new_id;
+            _nodes[user].invert_a ^= new_inv;
+        }
+        if((in_b != -1) && (in_b == nid)) {
+            _nodes[user].input_b = new_id;
+            _nodes[user].invert_b ^= new_inv;
+        }
+         if(!_nodes[user].isPo) {
+            _hashedNodes[and_key(user)] = user;
+        }
+    }
 }
 
 void aigGraph::rewrite() {
@@ -264,7 +309,9 @@ void aigGraph::rewrite() {
         for(int cid = 0; (std::size_t)cid < cuts_by_node[nid].size(); ++cid) {
             Cut& curr_cut = cuts_by_node[nid][cid];
             if(curr_cut.nLeaves == 1 && curr_cut.leaf[0] == nid) continue;
-            std::uint16_t new_tt = cut_tt(curr_cut, nid);
+            bool ok = true;
+            std::uint16_t new_tt = cut_tt(curr_cut, nid, ok);
+            if (!ok) continue;
             curr_cut.tt = new_tt;
             NPN npn = npn_canon(curr_cut.tt);
 
@@ -287,7 +334,7 @@ void aigGraph::rewrite() {
                 ++hits;
             }
         }
-        if (best_gain > 0)
+        if (best_gain > 0 && (lit_id(best_root) != nid || lit_inv(best_root)))
             swing(nid, best_root);
     }
     clean_dangling();

@@ -250,14 +250,27 @@ bool aigGraph::write_aiger(const char* path) const {
         aig_var[(std::size_t)pi] = next++;
     }
 
+    // Number ANDs fanins-first. After swing, a low-index AND can read a
+    // newly appended node, so _nodes index order is not AIGER topo order.
     std::vector<int> ands;
+    std::vector<char> seen(_nodes.size(), 0);
+    auto assign_and = [&](auto&& self, int id) -> void {
+        if (id < 0 || (std::size_t)id >= _nodes.size() || seen[(std::size_t)id])
+            return;
+        seen[(std::size_t)id] = 1;
+        const aigNode& n = _nodes[(std::size_t)id];
+        if (n.isPi || n.isPo || n.isConst || n.tombstone)
+            return;
+        self(self, n.input_a);
+        self(self, n.input_b);
+        aig_var[(std::size_t)id] = next++;
+        ands.push_back(id);
+    };
     for (std::size_t i = 0; i < _nodes.size(); ++i) {
         const aigNode& n = _nodes[i];
-        if (n.isPi || n.isPo || n.isConst || n.tombstone) {
+        if (n.isPi || n.isPo || n.isConst || n.tombstone)
             continue;
-        }
-        aig_var[i] = next++;
-        ands.push_back((int)i);
+        assign_and(assign_and, (int)i);
     }
 
     const uint32_t I = (uint32_t)_pis.size();
