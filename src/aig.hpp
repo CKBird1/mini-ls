@@ -97,6 +97,8 @@ class aigGraph {
 
         std::uint64_t and_key(int index);
         void rebuild_fanouts();
+        void rebuild_order();
+        std::vector<int> _kahns;
 
         Cut upper_cut(Cut ca, Cut cb);
         bool same_cut(Cut ca, Cut cb);

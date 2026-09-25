@@ -2,6 +2,39 @@
 #include "rwlib.hpp"
 #include <iostream>
 #include <vector>
+#include <queue>
+
+void aigGraph::rebuild_order() {
+    _kahns.clear();
+    std::vector<int> indegrees(_nodes.size());
+    std::queue<int> to_add;
+    for(int i = 0; i < (int)_nodes.size(); ++i) {
+        // I should really create a tiny helper to tidy up all these isPi/isPo/isConst etc checks...
+        if(_nodes[i].isPi || _nodes[i].isPo || _nodes[i].isConst || _nodes[i].tombstone) continue;
+        int indegree = 0;
+        int fanin = _nodes[i].input_a;
+        if(!_nodes[fanin].isPi && !_nodes[fanin].isPo && !_nodes[fanin].isConst && !_nodes[fanin].tombstone) indegree++;
+        fanin = _nodes[i].input_b;
+        if(!_nodes[fanin].isPi && !_nodes[fanin].isPo && !_nodes[fanin].isConst && !_nodes[fanin].tombstone) indegree++;
+        indegrees[i] = indegree;
+        if(indegree == 0) to_add.push(i);
+    }
+
+    //to_add now has all nodes only driven by PIs, start adding them to _kahns one at a time
+    //Decrement the indegree of any fanouts that this drives, and if any hit 0 add to to_add
+
+    while(!to_add.empty()) {
+        int nid = to_add.front();
+        to_add.pop();
+        _kahns.push_back(nid);
+        for(const auto& fo : _nodes[nid].fanouts) {
+            if(_nodes[fo].isPi || _nodes[fo].isPo || _nodes[fo].isConst || _nodes[fo].tombstone) continue;
+            indegrees[fo]--;
+            if(indegrees[fo] == 0) to_add.push(fo);
+        }
+    }
+    //_kahns should now be properly sorted by topo order
+}
 
 Cut aigGraph::upper_cut(Cut ca, Cut cb) {
     int i = 0, j = 0, index = 0;
@@ -384,13 +417,16 @@ void aigGraph::rewrite() {
     RwLib& lib = RwLib::instance();
 
     std::vector<std::vector<Cut>> cuts_by_node;
+    rebuild_order();
     cuts_by_node.resize(_nodes.size());
     enumerate_cuts(cuts_by_node);
 
     int hits = 0;
-    for(int nid = 0; (std::size_t)nid < cuts_by_node.size(); ++nid) {
-        if(_nodes[nid].isPi || _nodes[nid].isPo || _nodes[nid].isConst || _nodes[nid].tombstone) continue;
-
+    for(int kid = 0; (std::size_t)kid < _kahns.size(); ++kid) {
+        int nid = _kahns[kid];
+        if(_nodes[nid].tombstone) continue;
+        //Other checks no longer needed since _kahns never have po/pi/const
+        
         int deleted = mffc_size(nid);
         int best_gain = 0;
         int best_n = 0;
