@@ -9,7 +9,7 @@ void aigGraph::rebuild_order() {
     std::vector<int> indegrees(_nodes.size());
     std::queue<int> to_add;
     for(int i = 0; i < (int)_nodes.size(); ++i) {
-        // I should really create a tiny helper to tidy up all these isPi/isPo/isConst etc checks...
+        //I should really create a helper function te replace these long lists of checks
         if(_nodes[i].isPi || _nodes[i].isPo || _nodes[i].isConst || _nodes[i].tombstone) continue;
         int indegree = 0;
         int fanin = _nodes[i].input_a;
@@ -72,42 +72,48 @@ bool aigGraph::same_cut(Cut ca, Cut cb) {
     return true;
 }
 
-void aigGraph::enumerate_cuts(std::vector<std::vector<Cut>>& cuts_by_node) {
-    for(int i = 0; (std::size_t)i < _nodes.size(); ++i) {
-        if(_nodes[i].isPo || _nodes[i].isConst || _nodes[i].tombstone) continue;
-        
-        Cut cut;
-        cut.nLeaves = 1; 
-        cut.leaf[0] = i;
-        cuts_by_node[i].push_back(cut);
-        if(_nodes[i].isPi) continue;
-        else {
-            int adex = _nodes[i].input_a;
-            int bdex = _nodes[i].input_b;
-            for(int j = 0; (std::size_t)j < cuts_by_node[adex].size(); ++j) {
-                bool full = false;
-                for(int k = 0; (std::size_t)k < cuts_by_node[bdex].size(); ++k) {
-                    //work with cuts_by_node[adex][j] and cuts_by_node[bdex][k] to make a new union each loop
-                    Cut ca = cuts_by_node[adex][j];
-                    Cut cb = cuts_by_node[bdex][k];
-                    Cut nc = upper_cut(ca, cb);
-                    if(nc.nLeaves == 0) continue;
-                    
-                    //Now loop over cuts_by_node[i] and check against new cut nc
-                    bool same = false;
-                    for(int l = 0; l < (int)cuts_by_node[i].size(); ++l) {
-                        same = same_cut(nc, cuts_by_node[i][l]);
-                        if(same) break;
-                    }
-                    if(!same) cuts_by_node[i].push_back(nc); 
-                    if(cuts_by_node[i].size() >= 9) { //Allow unit cut to stay, 8 useful cuts
-                        full = true;
-                        break;                   
-                    }
-                }
-                if(full) break;
+void aigGraph::load_PIs(std::vector<std::vector<Cut>>& cuts_by_node) {
+    //load all the PIs into the cuts_by_node vector so that the topo-sort order calls 
+    //to enumerate cuts has something to jump off of
+    for(int i = 0; i < (int)_nodes.size(); ++i) {
+        if(_nodes[i].isPi) {
+            Cut c;
+            c.nLeaves = 1;
+            c.leaf[0] = i;
+            cuts_by_node[i].push_back(c);
+        }
+    }
+}
+
+void aigGraph::enumerate_cuts(std::vector<std::vector<Cut>>& cuts_by_node, int nid) {  
+    Cut cut;
+    cut.nLeaves = 1; 
+    cut.leaf[0] = nid;
+    cuts_by_node[nid].push_back(cut);
+    int adex = _nodes[nid].input_a;
+    int bdex = _nodes[nid].input_b;
+    for(int j = 0; (std::size_t)j < cuts_by_node[adex].size(); ++j) {
+        bool full = false;
+        for(int k = 0; (std::size_t)k < cuts_by_node[bdex].size(); ++k) {
+            //work with cuts_by_node[adex][j] and cuts_by_node[bdex][k] to make a new union each loop
+            Cut ca = cuts_by_node[adex][j];
+            Cut cb = cuts_by_node[bdex][k];
+            Cut nc = upper_cut(ca, cb);
+            if(nc.nLeaves == 0) continue;
+            
+            //Now loop over cuts_by_node[nid] and check against new cut nc
+            bool same = false;
+            for(int l = 0; l < (int)cuts_by_node[nid].size(); ++l) {
+                same = same_cut(nc, cuts_by_node[nid][l]);
+                if(same) break;
+            }
+            if(!same) cuts_by_node[nid].push_back(nc); 
+            if(cuts_by_node[nid].size() >= 9) { //Allow unit cut to stay, 8 useful cuts
+                full = true;
+                break;                   
             }
         }
+        if(full) break;
     }
 }
 
@@ -208,10 +214,10 @@ NPN npn_canon(std::uint16_t orig_tt) {
     return npn;
 }
 
-bool aigGraph::mffc_process_node(int nid, std::vector<int>& nof) {
+bool aigGraph::mffc_process_node(int nid, std::vector<int>& nof, Cut c) {
     //return true if we should process this node next, otherwise add/decrement from fanouts remaining
     if(_nodes[nid].isPi || _nodes[nid].isConst || _nodes[nid].tombstone) return false;
-
+    for(int i = 0; i < (int)c.nLeaves; ++i) if(nid == c.leaf[i]) return false;
     if(nof[nid] == -1) nof[nid] = (int)_nodes[nid].fanouts.size() - 1;
     else nof[nid] = nof[nid] - 1;
     
@@ -220,7 +226,7 @@ bool aigGraph::mffc_process_node(int nid, std::vector<int>& nof) {
     return false;
 }
 
-int aigGraph::mffc_size(int nid) {
+int aigGraph::mffc_size(int nid, Cut c) {
     //Nodes that die if nid is replaced
     //walk toward PI along fanins -> if each fanin has fanout size of 1, we're guaranteed it's within the cone
     //Stop walking a given path when fanout > 1 because it's driving something outside this cone, it's now a leaf
@@ -237,11 +243,11 @@ int aigGraph::mffc_size(int nid) {
         num_nodes_removed++;
 
         int fanin = _nodes[cNode].input_a;
-        if(mffc_process_node(fanin, number_of_fanouts)) nodes_to_process.push_back(fanin);
+        if(mffc_process_node(fanin, number_of_fanouts, c)) nodes_to_process.push_back(fanin);
          
 
         fanin = _nodes[cNode].input_b;
-        if(mffc_process_node(fanin, number_of_fanouts)) nodes_to_process.push_back(fanin);
+        if(mffc_process_node(fanin, number_of_fanouts, c)) nodes_to_process.push_back(fanin);
     }    
 
     return num_nodes_removed;
@@ -416,18 +422,18 @@ void aigGraph::rewrite() {
     rebuild_fanouts();
     RwLib& lib = RwLib::instance();
 
-    std::vector<std::vector<Cut>> cuts_by_node;
+    std::vector<std::vector<Cut>> cuts_by_node(_nodes.size());
+    load_PIs(cuts_by_node);
     rebuild_order();
-    cuts_by_node.resize(_nodes.size());
-    enumerate_cuts(cuts_by_node);
 
     int hits = 0;
     for(int kid = 0; (std::size_t)kid < _kahns.size(); ++kid) {
         int nid = _kahns[kid];
         if(_nodes[nid].tombstone) continue;
-        //Other checks no longer needed since _kahns never have po/pi/const
-        
-        int deleted = mffc_size(nid);
+        //Other checks no longer needed since _kahns never have po/pi/const/tombstone
+        enumerate_cuts(cuts_by_node, nid);
+
+        int deleted; //Will always be initialized later before use
         int best_gain = 0;
         int best_n = 0;
         const RwGraph* best_rwgraph = nullptr;
@@ -436,6 +442,10 @@ void aigGraph::rewrite() {
         for(int cid = 0; (std::size_t)cid < cuts_by_node[nid].size(); ++cid) {
             Cut& curr_cut = cuts_by_node[nid][cid];
             if(curr_cut.nLeaves == 1 && curr_cut.leaf[0] == nid) continue;
+            
+            //calc deleted for this specific cut
+            deleted = mffc_size(nid, curr_cut);
+            
             bool ok = true;
             std::uint16_t new_tt = cut_tt(curr_cut, nid, ok);
             if (!ok) continue;
@@ -471,10 +481,16 @@ void aigGraph::rewrite() {
             }
         }
         if (best_gain > 0) {
+            int mark = _nodes.size();
             std::uint32_t final_root = build_rwgraph(*best_rwgraph, best_leaf_lit);
             final_root ^= best_n;
             swing(nid, final_root);
             clean_mffc(nid);
+            cuts_by_node.resize(_nodes.size());
+            for(int newid = mark; newid < (int)_nodes.size(); ++newid) {
+                if(_nodes[newid].isPi || _nodes[newid].isPo || _nodes[newid].isConst || _nodes[newid].tombstone) continue;
+                enumerate_cuts(cuts_by_node, newid);
+            }
         }
     }
     clean_dangling();

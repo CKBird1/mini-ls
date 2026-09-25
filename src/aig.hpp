@@ -102,11 +102,12 @@ class aigGraph {
 
         Cut upper_cut(Cut ca, Cut cb);
         bool same_cut(Cut ca, Cut cb);
-        void enumerate_cuts(std::vector<std::vector<Cut>>& cuts_by_node);
+        void load_PIs(std::vector<std::vector<Cut>>& cuts_by_node);
+        void enumerate_cuts(std::vector<std::vector<Cut>>& cuts_by_node, int nid);
         std::uint16_t eval_tt(std::vector<int>& tts, int id, bool& ok);
         std::uint16_t cut_tt(Cut c, int id, bool& ok);
-        bool mffc_process_node(int nid, std::vector<int>& nof);
-        int mffc_size(int nid);
+        bool mffc_process_node(int nid, std::vector<int>& nof, Cut c);
+        int mffc_size(int nid, Cut c);
         void map_npn_leaves(const Cut& cut, const NPN& cut_npn, std::uint32_t leaf_lit[4]);
         std::uint32_t build_rwgraph(const RwGraph& g, const std::uint32_t leaf_lit[4]);
         void rollback_rwgraph(int mark);
