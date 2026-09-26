@@ -259,7 +259,7 @@ bool aigGraph::write_aiger(const char* path) const {
             return;
         seen[(std::size_t)id] = 1;
         const aigNode& n = _nodes[(std::size_t)id];
-        if (n.isPi || n.isPo || n.isConst || n.tombstone)
+        if (!n.is_and())
             return;
         self(self, n.input_a);
         self(self, n.input_b);
@@ -268,7 +268,7 @@ bool aigGraph::write_aiger(const char* path) const {
     };
     for (std::size_t i = 0; i < _nodes.size(); ++i) {
         const aigNode& n = _nodes[i];
-        if (n.isPi || n.isPo || n.isConst || n.tombstone)
+        if (!n.is_and())
             continue;
         assign_and(assign_and, (int)i);
     }

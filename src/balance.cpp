@@ -17,10 +17,10 @@ void aigGraph::balance() {
 
     int n = (int)_nodes.size(); //Need to iterate over only old nodes, not new ones being added
     for(int i = 0; i < n; ++i) {
-        if(_nodes[i].isPo || _nodes[i].isPi || _nodes[i].isConst || _nodes[i].tombstone) continue;
+        if(!_nodes[i].is_and()) continue;
 
         auto is_leaf = [&](int id, bool inverted) {
-            return (inverted || (_nodes[id].isPo || _nodes[id].isPi || _nodes[id].isConst) || old_fanout[id] != 1);
+            return (inverted || _nodes[id].is_pi_or_const() || _nodes[id].isPo || old_fanout[id] != 1);
         };
 
         std::vector<std::uint32_t> leaves;

@@ -49,6 +49,13 @@ struct aigNode {
         input_b = -1; invert_b = false;
         isConst = true;
     }
+
+    bool is_and() const {
+        return !isPi && !isPo && !isConst && !tombstone;
+    }
+    bool is_pi_or_const() const {
+        return isPi || isConst;
+    }
 };
 
 struct Cut {
@@ -59,6 +66,7 @@ struct Cut {
 
 struct RwGraph;
 struct NPN;
+struct LutCut;
 
 class aigGraph {
     
@@ -77,13 +85,14 @@ class aigGraph {
         int num_ands() const {
             int n = 0;
             for (const auto& node : _nodes) {
-                if (!node.isPi && !node.isPo && !node.isConst && !node.tombstone) ++n;
+                if (node.is_and()) ++n;
             }
             return n;
         }
 
         void balance();
         void rewrite();
+        void map(int k);
 
         void print_stats();
         int max_lev();
@@ -100,6 +109,7 @@ class aigGraph {
         void rebuild_order();
         std::vector<int> _kahns;
 
+        //Rewrite
         Cut upper_cut(Cut ca, Cut cb);
         bool same_cut(Cut ca, Cut cb);
         void load_PIs(std::vector<std::vector<Cut>>& cuts_by_node);
@@ -114,4 +124,10 @@ class aigGraph {
         void check_delete(int nid, std::vector<int>& node_is_dead);
         void clean_mffc(int nid);
         void swing(int nid, std::uint32_t new_root);
+
+        //K-LUT Mapper
+        LutCut upper_cut(LutCut ca, LutCut cb, int k);
+        bool same_cut(LutCut ca, LutCut cb);
+        bool cut_better(const LutCut& a, const LutCut& b);
+
 };

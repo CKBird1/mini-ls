@@ -14,7 +14,8 @@ static void usage(const char* argv0) {
     std::cerr << "usage: " << argv0 << " <in.aig> [out.aig] [-c <cmds>]\n"
               << "       " << argv0 << " --gen-npn <file>\n"
               << "  -c, --commands   space-separated commands, run in order (repeatable)\n"
-              << "  commands:        balance, rewrite\n"
+              << "  commands:        balance, rewrite, map\n"
+              << "  -K N             LUT size for map (default 6, 2..8)\n"
               << "  --gen-npn FILE   write NPN class table and exit\n"
               << "  --gen-rwlib FILE write generated 4-input subgraphs and exit\n"
               << "  --max-ands N     AND cap for --gen-rwlib (default 5, max 8)\n"
@@ -35,14 +36,16 @@ static std::vector<std::string> split_ws(const std::string& s) {
 }
 
 static bool is_known_command(const std::string& cmd) {
-    return cmd == "balance" || cmd == "rewrite";
+    return cmd == "balance" || cmd == "rewrite" || cmd == "map";
 }
 
-static void run_command(aigGraph& g, const std::string& cmd) {
+static void run_command(aigGraph& g, const std::string& cmd, int lut_k) {
     if (cmd == "balance")
         g.balance();
     else if (cmd == "rewrite")
         g.rewrite();
+    else if (cmd == "map")
+        g.map(lut_k);
 }
 
 int main(int argc, char** argv) {
@@ -53,6 +56,7 @@ int main(int argc, char** argv) {
     const char* npn_path = kNpnPath;
     const char* rwlib_path = kRwlibPath;
     int gen_max_ands = 5;
+    int lut_k = 6;
     std::vector<std::string> commands;
 
     for (int i = 1; i < argc; ++i) {
@@ -110,6 +114,21 @@ int main(int argc, char** argv) {
                 return 1;
             }
             rwlib_path = argv[++i];
+            continue;
+        }
+        if (a == "-K") {
+            if (i + 1 >= argc) {
+                std::cerr << "error: " << a << " requires an argument\n";
+                usage(argv[0]);
+                return 1;
+            }
+            char* end = nullptr;
+            long v = std::strtol(argv[++i], &end, 10);
+            if (end == argv[i] || *end || v < 2 || v > 8) {
+                std::cerr << "error: -K must be 2..8\n";
+                return 1;
+            }
+            lut_k = (int)v;
             continue;
         }
         if (a == "-c" || a == "--commands") {
@@ -198,7 +217,7 @@ int main(int argc, char** argv) {
     g.clean_dangling();
 
     for (const auto& cmd : commands)
-        run_command(g, cmd);
+        run_command(g, cmd, lut_k);
 
     g.print_stats();
 

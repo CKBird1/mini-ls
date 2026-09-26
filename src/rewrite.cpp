@@ -9,13 +9,12 @@ void aigGraph::rebuild_order() {
     std::vector<int> indegrees(_nodes.size());
     std::queue<int> to_add;
     for(int i = 0; i < (int)_nodes.size(); ++i) {
-        //I should really create a helper function te replace these long lists of checks
-        if(_nodes[i].isPi || _nodes[i].isPo || _nodes[i].isConst || _nodes[i].tombstone) continue;
+        if(!_nodes[i].is_and()) continue;
         int indegree = 0;
         int fanin = _nodes[i].input_a;
-        if(!_nodes[fanin].isPi && !_nodes[fanin].isPo && !_nodes[fanin].isConst && !_nodes[fanin].tombstone) indegree++;
+        if(_nodes[fanin].is_and()) indegree++;
         fanin = _nodes[i].input_b;
-        if(!_nodes[fanin].isPi && !_nodes[fanin].isPo && !_nodes[fanin].isConst && !_nodes[fanin].tombstone) indegree++;
+        if(_nodes[fanin].is_and()) indegree++;
         indegrees[i] = indegree;
         if(indegree == 0) to_add.push(i);
     }
@@ -28,7 +27,7 @@ void aigGraph::rebuild_order() {
         to_add.pop();
         _kahns.push_back(nid);
         for(const auto& fo : _nodes[nid].fanouts) {
-            if(_nodes[fo].isPi || _nodes[fo].isPo || _nodes[fo].isConst || _nodes[fo].tombstone) continue;
+            if(!_nodes[fo].is_and()) continue;
             indegrees[fo]--;
             if(indegrees[fo] == 0) to_add.push(fo);
         }
@@ -142,7 +141,7 @@ std::uint16_t aigGraph::eval_tt(std::vector<int> &tts, int id, bool& ok) {
         return 0;
     }
     if (tts[id] != -1) return tts[id];
-    if (_nodes[id].isPi || _nodes[id].isConst || _nodes[id].tombstone || _nodes[id].isPo) {
+    if (!_nodes[id].is_and()) {
         ok = false;
         return 0;
     }
@@ -216,7 +215,7 @@ NPN npn_canon(std::uint16_t orig_tt) {
 
 bool aigGraph::mffc_process_node(int nid, std::vector<int>& nof, Cut c) {
     //return true if we should process this node next, otherwise add/decrement from fanouts remaining
-    if(_nodes[nid].isPi || _nodes[nid].isConst || _nodes[nid].tombstone) return false;
+    if(_nodes[nid].is_pi_or_const() || _nodes[nid].tombstone) return false;
     for(int i = 0; i < (int)c.nLeaves; ++i) if(nid == c.leaf[i]) return false;
     if(nof[nid] == -1) nof[nid] = (int)_nodes[nid].fanouts.size() - 1;
     else nof[nid] = nof[nid] - 1;
@@ -374,7 +373,7 @@ void aigGraph::rollback_rwgraph(int mark) {
 void aigGraph::check_delete(int nid, std::vector<int>& node_is_dead) {    
     bool kill = true;
     int fanin = _nodes[nid].input_a;
-    if(!_nodes[fanin].tombstone && !_nodes[fanin].isPi && !_nodes[fanin].isConst) {
+    if(_nodes[fanin].is_and()) {
         for(int i = 0; i < (int)_nodes[fanin].fanouts.size(); ++i) {
             if(!_nodes[_nodes[fanin].fanouts[i]].tombstone) {
                 kill = false;
@@ -389,7 +388,7 @@ void aigGraph::check_delete(int nid, std::vector<int>& node_is_dead) {
     }
     kill = true;
     fanin = _nodes[nid].input_b;
-    if(!_nodes[fanin].tombstone && !_nodes[fanin].isPi && !_nodes[fanin].isConst) {   
+    if(_nodes[fanin].is_and()) {   
         for(int i = 0; i < (int)_nodes[fanin].fanouts.size(); ++i) {
             if(!_nodes[_nodes[fanin].fanouts[i]].tombstone) {
                 kill = false;
@@ -488,7 +487,7 @@ void aigGraph::rewrite() {
             clean_mffc(nid);
             cuts_by_node.resize(_nodes.size());
             for(int newid = mark; newid < (int)_nodes.size(); ++newid) {
-                if(_nodes[newid].isPi || _nodes[newid].isPo || _nodes[newid].isConst || _nodes[newid].tombstone) continue;
+                if(!_nodes[newid].is_and()) continue;
                 enumerate_cuts(cuts_by_node, newid);
             }
         }

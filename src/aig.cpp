@@ -119,7 +119,7 @@ void aigGraph::clean_dangling() {
     //anywhere with a 0 is a dangling item to be pruned (in this case tombstoned)
 
     for(int s = 0; (std::size_t)s < _nodes.size(); ++s) {
-        if(seen[s] == 0 && !_nodes[s].isPo && !_nodes[s].isPi && !_nodes[s].isConst) {
+        if(seen[s] == 0 && !_nodes[s].is_pi_or_const() && !_nodes[s].isPo) {
             _nodes[s].tombstone = true;
             //Now recreate key for the tombstoned node so it can be dropped from table
             std::uint64_t lookup = and_key(s);
