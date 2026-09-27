@@ -1,0 +1,15 @@
+input: /tmp/and2.bench
+placer: quadratic
+legalizer: abacus
+die: 0 0 16 10
+rows: 1 height=10
+cells: 4
+nets: 3
+placed: 4
+legal: 4
+hpwl: 16
+router: gcell
+gcells: 2x1 cap=10
+overflow: 0
+max_overflow: 0
+gcell_wl: 1

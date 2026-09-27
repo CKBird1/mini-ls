@@ -1,0 +1,10 @@
+# mapped LUT netlist; unit cells 4x2, row 10, ~50% util
+DIE 0 0 16 10
+ROWS 1 10
+CELL n1 4 2
+CELL n2 4 2
+CELL n3 4 2
+CELL n4 4 2
+NET n1 n1 n3
+NET n2 n2 n3
+NET n3 n3 n4

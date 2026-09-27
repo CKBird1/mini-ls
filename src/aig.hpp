@@ -79,6 +79,8 @@ class aigGraph {
 
         bool read_aiger(const char* path);
         bool write_aiger(const char* path) const;
+        bool write_blif(const char* path) const;
+        bool write_bench(const char* path) const;
 
         int num_pis() const { return (int)_pis.size(); }
         int num_pos() const { return (int)_pos.size(); }
@@ -131,4 +133,14 @@ class aigGraph {
         bool cut_better(const LutCut& a, const LutCut& b);
         void process_lut_root(const std::vector<std::vector<LutCut>>& cuts_by_node, std::vector<char>& used, int nid);
         void map_cover(const std::vector<std::vector<LutCut>>& cuts_by_node, std::vector<char>& used);
+
+        //BLIF emit (filled by map)
+        struct MappedLut {
+            int root = -1;
+            int nLeaves = 0;
+            int leaf[8] = {};
+            std::uint64_t tt = 0;
+        };
+        std::vector<MappedLut> _mapped_luts;
+        bool _has_mapping = false;
 };

@@ -11,11 +11,11 @@ static const char* kNpnPath = "data/npn4.txt";
 static const char* kRwlibPath = "data/rwlib4.txt";
 
 static void usage(const char* argv0) {
-    std::cerr << "usage: " << argv0 << " <in.aig> [out.aig] [-c <cmds>]\n"
+    std::cerr << "usage: " << argv0 << " <in.aig> [out.aig|out.blif|out.bench] [-c <cmds>]\n"
               << "       " << argv0 << " --gen-npn <file>\n"
               << "  -c, --commands   space-separated commands, run in order (repeatable)\n"
               << "  commands:        balance, rewrite, map\n"
-              << "  -K N             LUT size for map (default 6, 2..8)\n"
+              << "  -K N             LUT size for map (default 6, 2..6)\n"
               << "  --gen-npn FILE   write NPN class table and exit\n"
               << "  --gen-rwlib FILE write generated 4-input subgraphs and exit\n"
               << "  --max-ands N     AND cap for --gen-rwlib (default 5, max 8)\n"
@@ -124,8 +124,13 @@ int main(int argc, char** argv) {
             }
             char* end = nullptr;
             long v = std::strtol(argv[++i], &end, 10);
-            if (end == argv[i] || *end || v < 2 || v > 8) {
-                std::cerr << "error: -K must be 2..8\n";
+            if (end == argv[i] || *end || v < 2 || v > 6) {
+                if (v == 7 || v == 8) {
+                    std::cerr << "error: -K " << v
+                              << " is not supported; truth tables are 64-bit (use 2..6)\n";
+                    return 1;
+                }
+                std::cerr << "error: -K must be 2..6\n";
                 return 1;
             }
             lut_k = (int)v;
@@ -221,7 +226,21 @@ int main(int argc, char** argv) {
 
     g.print_stats();
 
-    if (out_path && !g.write_aiger(out_path))
-        return 1;
+    if (out_path) {
+        const std::string out = out_path;
+        auto ends_with = [&](const char* suf) {
+            const std::size_t n = std::char_traits<char>::length(suf);
+            return out.size() >= n && out.compare(out.size() - n, n, suf) == 0;
+        };
+        if (ends_with(".blif")) {
+            if (!g.write_blif(out_path))
+                return 1;
+        } else if (ends_with(".bench")) {
+            if (!g.write_bench(out_path))
+                return 1;
+        } else if (!g.write_aiger(out_path)) {
+            return 1;
+        }
+    }
     return 0;
 }

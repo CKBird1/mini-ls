@@ -1,0 +1,15 @@
+input: /tmp/i10.bench
+placer: quadratic
+legalizer: abacus
+die: 0 0 348 140
+rows: 14 height=10
+cells: 1205
+nets: 981
+placed: 1205
+legal: 1187
+hpwl: 162858
+router: gcell
+gcells: 35x14 cap=10
+overflow: 12323
+max_overflow: 38
+gcell_wl: 20831
