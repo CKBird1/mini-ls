@@ -129,5 +129,6 @@ class aigGraph {
         LutCut upper_cut(LutCut ca, LutCut cb, int k);
         bool same_cut(LutCut ca, LutCut cb);
         bool cut_better(const LutCut& a, const LutCut& b);
-
+        void process_lut_root(const std::vector<std::vector<LutCut>>& cuts_by_node, std::vector<char>& used, int nid);
+        void map_cover(const std::vector<std::vector<LutCut>>& cuts_by_node, std::vector<char>& used);
 };

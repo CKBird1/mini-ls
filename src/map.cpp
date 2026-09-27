@@ -1,5 +1,6 @@
 #include "aig.hpp"
 #include <algorithm>
+#include <iostream>
 
 struct LutCut {
     int leaf[8] = {};
@@ -69,7 +70,9 @@ static std::uint64_t compose_and_tt(const LutCut& ca, bool inv_a,
 LutCut aigGraph::upper_cut(LutCut ca, LutCut cb, int k) {
     int i = 0, j = 0, index = 0;
     int out[8];
+    LutCut new_cut;
     while(i < ca.nLeaves && j < cb.nLeaves) {
+        if (index >= k) return new_cut;
         if(ca.leaf[i] == cb.leaf[j]) {
             out[index++] = ca.leaf[i];
             ++i; ++j;
@@ -79,12 +82,13 @@ LutCut aigGraph::upper_cut(LutCut ca, LutCut cb, int k) {
             out[index++] = cb.leaf[j++];
         }
     }
-    while(i < ca.nLeaves) out[index++] = ca.leaf[i++];
-    while(j < cb.nLeaves) out[index++] = cb.leaf[j++];
-    LutCut new_cut;
-    if(index > k) {
-        new_cut.nLeaves = 0;
-        return new_cut;
+    while(i < ca.nLeaves) {
+        if (index >= k) return new_cut;
+        out[index++] = ca.leaf[i++];
+    }
+    while(j < cb.nLeaves) {
+        if (index >= k) return new_cut;
+        out[index++] = cb.leaf[j++];
     }
     new_cut.nLeaves = index;
     i = 0;
@@ -176,5 +180,58 @@ void aigGraph::map(int k) {
             node_delay[nid] = cuts[1].delay;
             node_area[nid] = cuts[1].area_flow;
         }
+    }
+
+    //Now start covering
+    std::vector<char> used((int)_nodes.size());
+    map_cover(cuts_by_node, used);
+
+    //Now figure out max delay on the post-lut tree.
+    int mapped_depth = 0;
+    for(int i = 0; i < (int)_pos.size(); ++i) {
+        if(_nodes[_pos[i]].input_a >= (int)_nodes.size()) continue;
+        int depth = node_delay[_nodes[_pos[i]].input_a];
+        if(depth > mapped_depth) mapped_depth = depth;
+    }
+    
+    //Now calculate LUT count
+    int count_of_lut = 0;
+    for(int i = 0; i < (int)used.size(); ++i) {
+        if(used[i]) count_of_lut++; 
+    }
+
+    std::cout << "luts = " << count_of_lut << " lev = " << mapped_depth << std::endl;
+
+}
+
+void aigGraph::process_lut_root(const std::vector<std::vector<LutCut>>& cuts_by_node, std::vector<char>& used, int nid) {
+    //We have a generic node id (nid), check if its used, mark it used, then go through 
+    //the best cuts leaves on it and recurse
+    if(nid < 0 || nid >= (int)_nodes.size() || nid >= (int)used.size() || 
+            nid >= (int)cuts_by_node.size() || !_nodes[nid].is_and() || 
+            used[nid] || (int)cuts_by_node[nid].size() <= 1) return;
+    //If we never found any better cuts, cut[1] doesn't exist
+    
+    LutCut lc = cuts_by_node[nid][1];
+    if(lc.nLeaves == 1 && lc.leaf[0] == nid) return; //Don't return identity
+
+    used[nid] = true;
+    for(int i = 0; i < lc.nLeaves; ++i) {
+        process_lut_root(cuts_by_node, used, lc.leaf[i]);
+    }
+}
+
+void aigGraph::map_cover(const std::vector<std::vector<LutCut>>& cuts_by_node, std::vector<char>& used) {
+    //Iterate over all the POs and seed a worklist of some sort with all the input_as that feed them
+    //Then go through those one at a time, those are LUT roots. used vector stores the LUT roots only
+    //after marking used[id]=1, take the best cut (cuts[1] because we sorted), and iterate through the
+    //Leaves. each of those leaves is a new LUT root, add those to the worklist and recurse
+    //We stop recursing when we hit a PI/Const or when when used is already true for that ID
+    //If used was already true, we've already read through that LUT and can be done
+
+    //Order of traversal here doesn't matter
+    for(int i = 0; i < (int)_nodes.size(); ++i) {
+        if(_nodes[i].isPo)
+            process_lut_root(cuts_by_node, used, _nodes[i].input_a);
     }
 }
