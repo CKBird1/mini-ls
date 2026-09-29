@@ -6,6 +6,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <climits>
 
 struct LutCut {
     int leaf[8] = {};
@@ -20,6 +21,14 @@ bool aigGraph::cut_better(const LutCut& a, const LutCut& b) {
         return a.delay < b.delay;
     return a.area_flow < b.area_flow;
 } //Custom comparator for sorting best cuts
+
+bool aigGraph::cut_better_time(const LutCut& a, const LutCut& b, int req) {
+    int a_meets = a.delay <= req;
+    int b_meets = b.delay <= req;
+    if(a_meets != b_meets) return a_meets;
+    if(a_meets) return a.area_flow < b.area_flow;
+    else return a.delay < b.delay;
+} //takes required time into the decision (must meet), and may allow slower cuts if they are better area
 
 bool aigGraph::same_cut(LutCut ca, LutCut cb) {
     if(ca.nLeaves != cb.nLeaves) return false;
@@ -101,7 +110,7 @@ LutCut aigGraph::upper_cut(LutCut ca, LutCut cb, int k) {
     return new_cut;
 }
 
-void aigGraph::map(int k) {
+void aigGraph::map(int k, int period) {
     _mapped_luts.clear();
     _has_mapping = false;
     rebuild_fanouts();
@@ -193,13 +202,44 @@ void aigGraph::map(int k) {
     std::vector<char> used((int)_nodes.size());
     map_cover(cuts_by_node, used);
 
-    //Now figure out max delay on the post-lut tree.
+    std::vector<int> required_time((int)_nodes.size(), INT_MAX);
+    std::vector<int> required_worklist;
+    if (period >= 0) {
+        for(int i = 0; i < (int)_nodes.size(); ++i) {
+            if(_nodes[i].isPo) {
+                required_time[_nodes[i].input_a] = period;
+                required_worklist.push_back(_nodes[i].input_a);
+            }
+        }
+        //Now required_time is populated, recurse over the netlist covers-style
+        //to set the now required_time for all leaves
+        while(!required_worklist.empty()) {
+            int nid = required_worklist.back();
+            required_worklist.pop_back();
+            if(!_nodes[nid].is_and() || !used[nid] || cuts_by_node[nid].size() <= 1) continue;
+            LutCut lc = cuts_by_node[nid][1];
+            if(lc.nLeaves == 1 && lc.leaf[0] == nid) continue;
+            for(int l = 0; l < lc.nLeaves; ++l) {
+                int lnid = lc.leaf[l];
+                if(!_nodes[lnid].is_and()) continue;
+                int before_check = required_time[lnid];
+                required_time[lnid] = std::min(required_time[lnid], required_time[nid]-1);
+                if(required_time[lnid] < before_check) required_worklist.push_back(lnid);
+            }
+        }
+    }
+
     int mapped_depth = 0;
     for(int i = 0; i < (int)_pos.size(); ++i) {
         if(_nodes[_pos[i]].input_a >= (int)_nodes.size()) continue;
         int depth = node_delay[_nodes[_pos[i]].input_a];
-        if(depth > mapped_depth) mapped_depth = depth;
+        if(depth > mapped_depth) {
+            mapped_depth = depth;
+        }
     }
+    int worst_negative_slack; 
+    if(period >= 0) worst_negative_slack = period - mapped_depth;
+    else worst_negative_slack = 0;
     
     //Now calculate LUT count
     int count_of_lut = 0;
@@ -207,7 +247,62 @@ void aigGraph::map(int k) {
         if(used[i]) count_of_lut++; 
     }
 
-    std::cout << "luts = " << count_of_lut << " lev = " << mapped_depth << std::endl;
+    std::cout << "luts = " << count_of_lut << " lev = " << mapped_depth;  
+    if(period >= 0) std::cout << " wns = " << worst_negative_slack << std::endl;
+    else std::cout << std::endl;
+
+    if(period >= 0) { //Now change LutCuts to care only about meeting requirement, and then area instead
+                        //of delay first -> area second
+        for(int i = 0; i < (int)_kahns.size(); ++i) {
+            int nid = _kahns[i];
+            for(int j = 1; j < (int)cuts_by_node[nid].size(); ++j) {
+                if((cuts_by_node[nid][j].nLeaves == 1) && (cuts_by_node[nid][j].leaf[0] == nid)) continue;
+                LutCut lc = cuts_by_node[nid][j];
+                int max_delay = 0;
+                for(int leaf = 0; leaf < (int)lc.nLeaves; ++leaf)
+                    if(node_delay[lc.leaf[leaf]] > max_delay) max_delay = node_delay[lc.leaf[leaf]];
+                cuts_by_node[nid][j].delay = 1 + max_delay;
+            } //Now all cuts have recomputed delay, sort this nodes cuts by required_time
+            
+            auto& cuts = cuts_by_node[nid];
+            int req = required_time[nid];
+            if(req == INT_MAX) continue;
+            if((int)cuts.size() > 2)
+                std::sort(cuts.begin() + 1, cuts.end(),
+                    [this, req](const LutCut& a, const LutCut& b) { return cut_better_time(a, b, req); });
+            if((int)cuts.size() > 9)
+                cuts.resize(9);
+            if((int)cuts.size() >= 2) {
+                node_delay[nid] = cuts[1].delay;
+            }
+        }
+        //Now re-calc and print
+        std::fill(used.begin(), used.end(), 0);
+        map_cover(cuts_by_node, used);
+
+        mapped_depth = 0;
+        for(int i = 0; i < (int)_pos.size(); ++i) {
+            if(_nodes[_pos[i]].input_a >= (int)_nodes.size()) continue;
+            int depth = node_delay[_nodes[_pos[i]].input_a];
+            if(depth > mapped_depth) {
+                mapped_depth = depth;
+            }
+        }
+        worst_negative_slack = 0; 
+        if(period >= 0) worst_negative_slack = period - mapped_depth;
+        else worst_negative_slack = 0;
+        
+        //Now calculate LUT count
+        count_of_lut = 0;
+        for(int i = 0; i < (int)used.size(); ++i) {
+            if(used[i]) count_of_lut++; 
+        }
+
+        std::cout << "luts = " << count_of_lut << " lev = " << mapped_depth;  
+        if(period >= 0) std::cout << " wns = " << worst_negative_slack << std::endl;
+        else std::cout << std::endl;
+    
+    }
 
     _mapped_luts.clear();
     _mapped_luts.reserve((std::size_t)count_of_lut);

@@ -16,6 +16,7 @@ static void usage(const char* argv0) {
               << "  -c, --commands   space-separated commands, run in order (repeatable)\n"
               << "  commands:        balance, rewrite, map\n"
               << "  -K N             LUT size for map (default 6, 2..6)\n"
+              << "  --period N       required LUT depth at POs (omit = unconstrained)\n"
               << "  --gen-npn FILE   write NPN class table and exit\n"
               << "  --gen-rwlib FILE write generated 4-input subgraphs and exit\n"
               << "  --max-ands N     AND cap for --gen-rwlib (default 5, max 8)\n"
@@ -39,13 +40,13 @@ static bool is_known_command(const std::string& cmd) {
     return cmd == "balance" || cmd == "rewrite" || cmd == "map";
 }
 
-static void run_command(aigGraph& g, const std::string& cmd, int lut_k) {
+static void run_command(aigGraph& g, const std::string& cmd, int lut_k, int period) {
     if (cmd == "balance")
         g.balance();
     else if (cmd == "rewrite")
         g.rewrite();
     else if (cmd == "map")
-        g.map(lut_k);
+        g.map(lut_k, period);
 }
 
 int main(int argc, char** argv) {
@@ -57,6 +58,7 @@ int main(int argc, char** argv) {
     const char* rwlib_path = kRwlibPath;
     int gen_max_ands = 5;
     int lut_k = 6;
+    int period = -1;
     std::vector<std::string> commands;
 
     for (int i = 1; i < argc; ++i) {
@@ -134,6 +136,21 @@ int main(int argc, char** argv) {
                 return 1;
             }
             lut_k = (int)v;
+            continue;
+        }
+        if (a == "--period") {
+            if (i + 1 >= argc) {
+                std::cerr << "error: " << a << " requires an argument\n";
+                usage(argv[0]);
+                return 1;
+            }
+            char* end = nullptr;
+            long v = std::strtol(argv[++i], &end, 10);
+            if (end == argv[i] || *end || v < 0) {
+                std::cerr << "error: --period must be >= 0\n";
+                return 1;
+            }
+            period = (int)v;
             continue;
         }
         if (a == "-c" || a == "--commands") {
@@ -222,7 +239,7 @@ int main(int argc, char** argv) {
     g.clean_dangling();
 
     for (const auto& cmd : commands)
-        run_command(g, cmd, lut_k);
+        run_command(g, cmd, lut_k, period);
 
     g.print_stats();
 

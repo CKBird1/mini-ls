@@ -94,7 +94,7 @@ class aigGraph {
 
         void balance();
         void rewrite();
-        void map(int k);
+        void map(int k, int period = -1);
 
         void print_stats();
         int max_lev();
@@ -133,6 +133,7 @@ class aigGraph {
         bool cut_better(const LutCut& a, const LutCut& b);
         void process_lut_root(const std::vector<std::vector<LutCut>>& cuts_by_node, std::vector<char>& used, int nid);
         void map_cover(const std::vector<std::vector<LutCut>>& cuts_by_node, std::vector<char>& used);
+        bool cut_better_time(const LutCut& a, const LutCut& b, int req);
 
         //BLIF emit (filled by map)
         struct MappedLut {

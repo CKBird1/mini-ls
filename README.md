@@ -24,6 +24,8 @@ AIGER (.aig / .aag)
 CLI runs `balance`, `rewrite`, and `map` in the order given. Mapping covers the
 AIG; it does not rewrite AND nodes in place. `print_stats` still reports AIG
 size and AND depth. `map` prints LUT count and mapped depth (`luts` / `lev`).
+`--period N` is a unit-delay required time at every PO: delay-optimal cover,
+then one slack-aware area recovery pass, then `wns`.
 
 ## Engine
 
@@ -38,8 +40,10 @@ size and AND depth. `map` prints LUT count and mapped depth (`luts` / `lev`).
   Library is `data/npn4.txt` (222 class keys) and `data/rwlib4.txt` (12 NPN
   classes / 60 graphs, `max_ands=5`).
 - **K-LUT map** (`src/map.cpp`): priority cuts, delay then area-flow, reverse
-  cover from POs. Snapshot (`MappedLut`) feeds `write_blif` and `write_bench`.
-  Default `-K 6`; 64-bit truth tables, so K is 2..6.
+  cover from POs. Optional `--period N`: required time at PO drivers, then
+  re-rank cuts that still meet that budget by area-flow. Snapshot (`MappedLut`)
+  feeds `write_blif` and `write_bench`. Default `-K 6`; 64-bit truth tables, so
+  K is 2..6.
 
 ## Build and run
 
@@ -47,13 +51,15 @@ size and AND depth. `map` prints LUT count and mapped depth (`luts` / `lev`).
 make -j
 ./build/mini-ls tests/and2.aag /tmp/and2.blif -c map
 ./build/mini-ls ~/eda/abc/i10.aig /tmp/i10.blif -c "balance rewrite map"
+./build/mini-ls ~/eda/abc/i10.aig /tmp/i10.blif -c "balance rewrite map" --period 10
 ./build/mini-ls ~/eda/abc/i10.aig /tmp/i10.bench -c "balance rewrite map"
 ```
 
 ```text
 usage: mini-ls <in.aig> [out.aig|out.blif|out.bench] [-c <cmds>]
   commands:  balance, rewrite, map
-  -K N       LUT size for map (default 6, 2..6)
+  -K N        LUT size for map (default 6, 2..6)
+  --period N  required LUT depth at POs (omit = unconstrained)
 ```
 
 Output suffix selects the writer. Rewrite loads `data/npn4.txt` and
@@ -85,15 +91,34 @@ ABC numbers from [STAGE0.md](STAGE0.md) (`strash` / `balance` / `rewrite` /
 | `balance rewrite map` (`-K 6`) | 723 LUT, lev 10 | 575 LUT, lev 9 |
 
 ABC `cec -n` vs original `i10.aig`: equivalent on the rewritten AIG dump and on
-the mapped BLIF.
+the mapped BLIF (including after `--period`).
 
 The AND gap is mostly the rewrite library (12 of 222 4-input NPN classes at
 `max_ands=5`, versus ABC’s practical table). Huffman balance also keeps a few
-more ANDs (2427 vs 2396) at the same depth 37. The LUT column is whole-flow:
-ABC `if` runs on ABC’s rewritten AIG (2046 ANDs). Mapping here is one
-delay-then-area-flow cover with AIG fanouts; no area-recovery round.
+more ANDs (2427 vs 2396) at the same depth 37. The unconstrained LUT column is
+whole-flow: ABC `if` runs on ABC’s rewritten AIG (2046 ANDs). Mapping here is
+one delay-then-area-flow cover; `--period` adds one slack-aware recovery pass
+on the same AIG.
 
-`tests/and2.aag -c map`: `luts = 1 lev = 1`.
+Same `balance rewrite map` subject, `--period N` in LUT delays. First `map`
+line is delay-optimal (723 / 10); second line is recovery. AIG stays 2223 AND,
+lev 37. Delay-optimal mapping treats every node as critical. Recovery keeps
+those fast cuts on paths that need them, and on nodes with slack it takes a
+cheaper (usually wider) cut, so fewer LUT roots.
+
+| `map` | luts | lev | wns |
+|---|---|---|---|
+| unconstrained | 723 | 10 | — |
+| `--period 10` | 678 | 10 | 0 |
+| `--period 8` | 689 | 10 | −2 |
+| `--period 12` | 669 | 12 | 0 |
+
+Period 10 spends off-critical slack (45 fewer LUTs, depth stays 10). Period 12
+lets the old critical path grow two levels (669 LUTs, WNS 0). Period 8 cannot
+beat lev 10, so WNS stays −2; short POs still recover some area (689).
+
+`tests/and2.aag -c map`: `luts = 1 lev = 1`. `--period 1` is WNS 0; `--period 0`
+is WNS −1.
 
 mini-pd on the checked-in `.bench` files (quadratic + Abacus, g-cell router):
 
@@ -134,6 +159,6 @@ Had AI 'beautify' this README with formatting and some nicer wording.
 
 ## Next
 
-SDC-like constraints on this mapper (`create_clock`, `set_max_delay` /
-`set_false_path`, `set_dont_touch`): same design unconstrained vs constrained,
-different `lev` / LUT choices, still CEC-equivalent.
+`--period N` is the first constraint slice (`create_clock` as a global required
+time). Still open: `set_max_delay` / `set_false_path` / `set_dont_touch` on the
+same mapper.
