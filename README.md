@@ -25,7 +25,9 @@ CLI runs `balance`, `rewrite`, and `map` in the order given. Mapping covers the
 AIG; it does not rewrite AND nodes in place. `print_stats` still reports AIG
 size and AND depth. `map` prints LUT count and mapped depth (`luts` / `lev`).
 `--period N` is a unit-delay required time at every PO: delay-optimal cover,
-then one slack-aware area recovery pass, then `wns`.
+then one slack-aware area recovery pass, then `wns`. `--max-delay i:N` (repeatable)
+caps PO `i` (`_pos` order) to `N`; with both, that PO’s required time is
+`min(period, N)`.
 
 ## Engine
 
@@ -40,10 +42,10 @@ then one slack-aware area recovery pass, then `wns`.
   Library is `data/npn4.txt` (222 class keys) and `data/rwlib4.txt` (12 NPN
   classes / 60 graphs, `max_ands=5`).
 - **K-LUT map** (`src/map.cpp`): priority cuts, delay then area-flow, reverse
-  cover from POs. Optional `--period N`: required time at PO drivers, then
-  re-rank cuts that still meet that budget by area-flow. Snapshot (`MappedLut`)
-  feeds `write_blif` and `write_bench`. Default `-K 6`; 64-bit truth tables, so
-  K is 2..6.
+  cover from POs. Optional `--period N` and `--max-delay i:N`: required time at
+  PO drivers (per-PO cap, `min` if both), then re-rank cuts that still meet
+  that budget by area-flow. Snapshot (`MappedLut`) feeds `write_blif` and
+  `write_bench`. Default `-K 6`; 64-bit truth tables, so K is 2..6.
 
 ## Build and run
 
@@ -52,14 +54,17 @@ make -j
 ./build/mini-ls tests/and2.aag /tmp/and2.blif -c map
 ./build/mini-ls ~/eda/abc/i10.aig /tmp/i10.blif -c "balance rewrite map"
 ./build/mini-ls ~/eda/abc/i10.aig /tmp/i10.blif -c "balance rewrite map" --period 10
+./build/mini-ls ~/eda/abc/i10.aig /tmp/i10.blif -c "balance rewrite map" --period 12 --max-delay 0:10
+./build/mini-ls ~/eda/abc/i10.aig /tmp/i10.blif -c "balance rewrite map" --max-delay 0:8
 ./build/mini-ls ~/eda/abc/i10.aig /tmp/i10.bench -c "balance rewrite map"
 ```
 
 ```text
 usage: mini-ls <in.aig> [out.aig|out.blif|out.bench] [-c <cmds>]
-  commands:  balance, rewrite, map
-  -K N        LUT size for map (default 6, 2..6)
-  --period N  required LUT depth at POs (omit = unconstrained)
+  commands:     balance, rewrite, map
+  -K N          LUT size for map (default 6, 2..6)
+  --period N    required LUT depth at every PO (omit = unconstrained)
+  --max-delay i:N  cap PO i (0-based _pos order) to N LUT delays (repeatable)
 ```
 
 Output suffix selects the writer. Rewrite loads `data/npn4.txt` and
@@ -91,14 +96,14 @@ ABC numbers from [STAGE0.md](STAGE0.md) (`strash` / `balance` / `rewrite` /
 | `balance rewrite map` (`-K 6`) | 723 LUT, lev 10 | 575 LUT, lev 9 |
 
 ABC `cec -n` vs original `i10.aig`: equivalent on the rewritten AIG dump and on
-the mapped BLIF (including after `--period`).
+the mapped BLIF (including after `--period` and `--max-delay`).
 
 The AND gap is mostly the rewrite library (12 of 222 4-input NPN classes at
 `max_ands=5`, versus ABC’s practical table). Huffman balance also keeps a few
 more ANDs (2427 vs 2396) at the same depth 37. The unconstrained LUT column is
 whole-flow: ABC `if` runs on ABC’s rewritten AIG (2046 ANDs). Mapping here is
-one delay-then-area-flow cover; `--period` adds one slack-aware recovery pass
-on the same AIG.
+one delay-then-area-flow cover; `--period` / `--max-delay` add one slack-aware
+recovery pass on the same AIG.
 
 Same `balance rewrite map` subject, `--period N` in LUT delays. First `map`
 line is delay-optimal (723 / 10); second line is recovery. AIG stays 2223 AND,
@@ -117,8 +122,22 @@ Period 10 spends off-critical slack (45 fewer LUTs, depth stays 10). Period 12
 lets the old critical path grow two levels (669 LUTs, WNS 0). Period 8 cannot
 beat lev 10, so WNS stays −2; short POs still recover some area (689).
 
+`--max-delay i:N` is a cap on one PO (`set_max_delay`). WNS is the min slack
+over POs that have a cap, not `period - lev`. Recovered line, same AIG:
+
+| `map` | luts | lev | wns | what it shows |
+|---|---|---|---|---|
+| unconstrained | 723 | 10 | — | delay-optimal, every node treated as critical |
+| `--max-delay 0:8` | 718 | 10 | 2 | only PO 0 has a cap; chip depth stays 10; WNS is that PO’s slack (arrival 6) |
+| `--period 12` | 669 | 12 | 0 | every PO may use 12 |
+| `--period 12 --max-delay 0:10` | 669 | 12 | 0 | same chip QoR; PO 0 is off-critical (still cannot exceed 10; WNS would be −2 if it had) |
+
+`--max-delay 0:8` delay-optimal line is `wns = 3` (PO 0 arrival 5); recovery
+spends one level of that slack. `--period 12 --max-delay 0:10` matches
+`--period 12` at chip `luts`/`lev` because PO 0 is not the longest path.
+
 `tests/and2.aag -c map`: `luts = 1 lev = 1`. `--period 1` is WNS 0; `--period 0`
-is WNS −1.
+is WNS −1. `--period 1 --max-delay 0:0` is WNS −1 (`min(1,0)` on the only PO).
 
 mini-pd on the checked-in `.bench` files (quadratic + Abacus, g-cell router):
 
@@ -159,6 +178,5 @@ Had AI 'beautify' this README with formatting and some nicer wording.
 
 ## Next
 
-`--period N` is the first constraint slice (`create_clock` as a global required
-time). Still open: `set_max_delay` / `set_false_path` / `set_dont_touch` on the
-same mapper.
+`--period N` (`create_clock`) and `--max-delay i:N` (`set_max_delay`) are in.
+Still open: `set_false_path` / `set_dont_touch` on the same mapper.

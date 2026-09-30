@@ -2,9 +2,11 @@
 #include "rwlib.hpp"
 
 #include <cstdlib>
+#include <cstring>
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 static const char* kNpnPath = "data/npn4.txt";
@@ -17,6 +19,7 @@ static void usage(const char* argv0) {
               << "  commands:        balance, rewrite, map\n"
               << "  -K N             LUT size for map (default 6, 2..6)\n"
               << "  --period N       required LUT depth at POs (omit = unconstrained)\n"
+              << "  --max-delay i:N  cap PO i (0-based _pos order) to N LUT delays (repeatable)\n"
               << "  --gen-npn FILE   write NPN class table and exit\n"
               << "  --gen-rwlib FILE write generated 4-input subgraphs and exit\n"
               << "  --max-ands N     AND cap for --gen-rwlib (default 5, max 8)\n"
@@ -40,13 +43,14 @@ static bool is_known_command(const std::string& cmd) {
     return cmd == "balance" || cmd == "rewrite" || cmd == "map";
 }
 
-static void run_command(aigGraph& g, const std::string& cmd, int lut_k, int period) {
+static void run_command(aigGraph& g, const std::string& cmd, int lut_k, int period,
+                        const std::vector<std::pair<int,int>>& max_delays) {
     if (cmd == "balance")
         g.balance();
     else if (cmd == "rewrite")
         g.rewrite();
     else if (cmd == "map")
-        g.map(lut_k, period);
+        g.map(lut_k, period, max_delays);
 }
 
 int main(int argc, char** argv) {
@@ -59,6 +63,7 @@ int main(int argc, char** argv) {
     int gen_max_ands = 5;
     int lut_k = 6;
     int period = -1;
+    std::vector<std::pair<int,int>> max_delays;
     std::vector<std::string> commands;
 
     for (int i = 1; i < argc; ++i) {
@@ -153,6 +158,32 @@ int main(int argc, char** argv) {
             period = (int)v;
             continue;
         }
+        if (a == "--max-delay") {
+            if (i + 1 >= argc) {
+                std::cerr << "error: " << a << " requires an argument\n";
+                usage(argv[0]);
+                return 1;
+            }
+            const char* spec = argv[++i];
+            const char* colon = std::strchr(spec, ':');
+            if (!colon || colon == spec || colon[1] == '\0') {
+                std::cerr << "error: --max-delay expects i:N (PO index : delay)\n";
+                return 1;
+            }
+            char* end = nullptr;
+            long po = std::strtol(spec, &end, 10);
+            if (end != colon || po < 0) {
+                std::cerr << "error: --max-delay PO index must be >= 0\n";
+                return 1;
+            }
+            long d = std::strtol(colon + 1, &end, 10);
+            if (end == colon + 1 || *end || d < 0) {
+                std::cerr << "error: --max-delay delay must be >= 0\n";
+                return 1;
+            }
+            max_delays.push_back({(int)po, (int)d});
+            continue;
+        }
         if (a == "-c" || a == "--commands") {
             if (i + 1 >= argc) {
                 std::cerr << "error: " << a << " requires an argument\n";
@@ -238,8 +269,16 @@ int main(int argc, char** argv) {
 
     g.clean_dangling();
 
+    for (const auto& md : max_delays) {
+        if (md.first >= g.num_pos()) {
+            std::cerr << "error: --max-delay PO index " << md.first
+                      << " out of range (" << g.num_pos() << " POs)\n";
+            return 1;
+        }
+    }
+
     for (const auto& cmd : commands)
-        run_command(g, cmd, lut_k, period);
+        run_command(g, cmd, lut_k, period, max_delays);
 
     g.print_stats();
 

@@ -110,7 +110,7 @@ LutCut aigGraph::upper_cut(LutCut ca, LutCut cb, int k) {
     return new_cut;
 }
 
-void aigGraph::map(int k, int period) {
+void aigGraph::map(int k, int period, const std::vector<std::pair<int,int>>& max_delays) {
     _mapped_luts.clear();
     _has_mapping = false;
     rebuild_fanouts();
@@ -204,11 +204,23 @@ void aigGraph::map(int k, int period) {
 
     std::vector<int> required_time((int)_nodes.size(), INT_MAX);
     std::vector<int> required_worklist;
-    if (period >= 0) {
-        for(int i = 0; i < (int)_nodes.size(); ++i) {
-            if(_nodes[i].isPo) {
-                required_time[_nodes[i].input_a] = period;
-                required_worklist.push_back(_nodes[i].input_a);
+    std::vector<int> max_del((int)_pos.size(), -1);
+    if (period >= 0 || (int)max_delays.size() > 0) {
+        for(int md = 0; md < (int)max_delays.size(); ++md) {
+            max_del[max_delays[md].first] = max_delays[md].second;
+        }
+        for(int p = 0; p < (int)_pos.size(); ++p) {
+            int driver = _nodes[_pos[p]].input_a;
+            if(period >= 0 && max_del[p] != -1) {
+                int min_cap = std::min(period, max_del[p]);
+                required_time[driver] = std::min(required_time[driver], min_cap);
+                required_worklist.push_back(driver);
+            } else if(period >= 0) {
+                required_time[driver] = std::min(required_time[driver], period);
+                required_worklist.push_back(driver);
+            } else if(max_del[p] != -1) {
+                required_time[driver] = std::min(required_time[driver], max_del[p]);
+                required_worklist.push_back(driver);
             }
         }
         //Now required_time is populated, recurse over the netlist covers-style
@@ -237,9 +249,18 @@ void aigGraph::map(int k, int period) {
             mapped_depth = depth;
         }
     }
-    int worst_negative_slack; 
-    if(period >= 0) worst_negative_slack = period - mapped_depth;
-    else worst_negative_slack = 0;
+    int worst_negative_slack = INT_MAX; 
+    for(int po = 0; po < (int)_pos.size(); ++po) {
+        int cap = INT_MAX;
+        if(period >= 0 && max_del[po] != -1) cap = std::min(period, max_del[po]);
+        else if(period >= 0) cap = period;
+        else if(max_del[po] != -1) cap = max_del[po];
+        if(cap == INT_MAX) continue;
+        int slack = cap - node_delay[_nodes[_pos[po]].input_a];
+        worst_negative_slack = std::min(worst_negative_slack, slack);
+    } 
+    if(worst_negative_slack == INT_MAX) worst_negative_slack = 0;
+
     
     //Now calculate LUT count
     int count_of_lut = 0;
@@ -248,11 +269,12 @@ void aigGraph::map(int k, int period) {
     }
 
     std::cout << "luts = " << count_of_lut << " lev = " << mapped_depth;  
-    if(period >= 0) std::cout << " wns = " << worst_negative_slack << std::endl;
+    if(period >= 0 || !max_delays.empty()) std::cout << " wns = " << worst_negative_slack << std::endl;
     else std::cout << std::endl;
 
-    if(period >= 0) { //Now change LutCuts to care only about meeting requirement, and then area instead
-                        //of delay first -> area second
+    if(period >= 0 || !max_delays.empty()) { 
+    //Now change LutCuts to care only about meeting requirement, and then area instead
+    //of delay first -> area second
         for(int i = 0; i < (int)_kahns.size(); ++i) {
             int nid = _kahns[i];
             for(int j = 1; j < (int)cuts_by_node[nid].size(); ++j) {
@@ -288,9 +310,17 @@ void aigGraph::map(int k, int period) {
                 mapped_depth = depth;
             }
         }
-        worst_negative_slack = 0; 
-        if(period >= 0) worst_negative_slack = period - mapped_depth;
-        else worst_negative_slack = 0;
+        int worst_negative_slack = INT_MAX; 
+        for(int po = 0; po < (int)_pos.size(); ++po) {
+            int cap = INT_MAX;
+            if(period >= 0 && max_del[po] != -1) cap = std::min(period, max_del[po]);
+            else if(period >= 0) cap = period;
+            else if(max_del[po] != -1) cap = max_del[po];
+            if(cap == INT_MAX) continue;
+            int slack = cap - node_delay[_nodes[_pos[po]].input_a];
+            worst_negative_slack = std::min(worst_negative_slack, slack);
+        } 
+        if(worst_negative_slack == INT_MAX) worst_negative_slack = 0;
         
         //Now calculate LUT count
         count_of_lut = 0;
@@ -299,7 +329,7 @@ void aigGraph::map(int k, int period) {
         }
 
         std::cout << "luts = " << count_of_lut << " lev = " << mapped_depth;  
-        if(period >= 0) std::cout << " wns = " << worst_negative_slack << std::endl;
+        if(period >= 0 || !max_delays.empty()) std::cout << " wns = " << worst_negative_slack << std::endl;
         else std::cout << std::endl;
     
     }

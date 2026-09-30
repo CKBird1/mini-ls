@@ -1,6 +1,7 @@
 #pragma once
 #include <vector>
 #include <unordered_map>
+#include <utility>
 #include <cstdint>
 
 //node id in the high bits, complement in the least significant bit.
@@ -94,7 +95,8 @@ class aigGraph {
 
         void balance();
         void rewrite();
-        void map(int k, int period = -1);
+        void map(int k, int period = -1,
+                 const std::vector<std::pair<int,int>>& max_delays = {});
 
         void print_stats();
         int max_lev();
