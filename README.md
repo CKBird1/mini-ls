@@ -159,6 +159,7 @@ i10’s 18 overlaps are the invented unit-cell floorplan versus Abacus (die
 | `src/rewrite.cpp` | 4-cuts, NPN, MFFC, swing |
 | `src/rwlib.*` `src/rwgen.cpp` | rewrite library + generator |
 | `src/map.cpp` | K-LUT map, BLIF / bench writers |
+| `src/sdc.hpp` `src/sdc.cpp` | Constraints: period, max-delay, false-path, dont-touch |
 | `src/main.cpp` | CLI |
 | `data/npn4.txt` | 222 NPN class keys |
 | `data/rwlib4.txt` | 12-class / 60-graph library |

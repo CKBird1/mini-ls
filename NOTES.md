@@ -73,3 +73,7 @@ Added the beginnings of constraint/requirement comprehension in mini-ls. Current
 ## Day 18 (9-29-2026)
 
 Added --max-delay i:N as an option into mini-ls. It will do the same as set_max_delay on the given PO to constrain that path more than the period itself will. The code works if you set one, the other, or both. Worst negative slack is now calculated with this in mind, not simply period - mapped-depth. When populating required_time vector the max delay is taken into account with the rest of the code staying the same. Happy to be adding more constraints/clock relevant as I move through.
+
+## Day 19 (10-2-2026)
+
+I was sick for a couple days, so picking back up. For now I was getting quite bothered that as I went along adding some timing constraint relevance to map, the engine map + aig was starting to be the 'owner' of constraints rather than simply the reader/user. I know going forward that will not fly as I eventually intend to turn this into a multi-netlist engine. So I created sdc.hpp/cpp class called Constraints that holds the relevant constraint data, and then wired it into map so it doesn't 'own' this data. I also setup the class in a way that eventually I can easily attach these constraints to specific objects once naming is implemented and once I want deeper control rather than a simple command line. Eventually I'll have full .sdc reading support to attach to specific objects as needed.

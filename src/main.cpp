@@ -1,12 +1,12 @@
 #include "aig.hpp"
 #include "rwlib.hpp"
+#include "sdc.hpp"
 
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <sstream>
 #include <string>
-#include <utility>
 #include <vector>
 
 static const char* kNpnPath = "data/npn4.txt";
@@ -43,14 +43,14 @@ static bool is_known_command(const std::string& cmd) {
     return cmd == "balance" || cmd == "rewrite" || cmd == "map";
 }
 
-static void run_command(aigGraph& g, const std::string& cmd, int lut_k, int period,
-                        const std::vector<std::pair<int,int>>& max_delays) {
+static void run_command(aigGraph& g, const std::string& cmd, int lut_k,
+                        const Constraints& sdc) {
     if (cmd == "balance")
         g.balance();
     else if (cmd == "rewrite")
         g.rewrite();
     else if (cmd == "map")
-        g.map(lut_k, period, max_delays);
+        g.map(lut_k, sdc);
 }
 
 int main(int argc, char** argv) {
@@ -62,8 +62,7 @@ int main(int argc, char** argv) {
     const char* rwlib_path = kRwlibPath;
     int gen_max_ands = 5;
     int lut_k = 6;
-    int period = -1;
-    std::vector<std::pair<int,int>> max_delays;
+    Constraints sdc;
     std::vector<std::string> commands;
 
     for (int i = 1; i < argc; ++i) {
@@ -155,7 +154,7 @@ int main(int argc, char** argv) {
                 std::cerr << "error: --period must be >= 0\n";
                 return 1;
             }
-            period = (int)v;
+            sdc.set_period((int)v);
             continue;
         }
         if (a == "--max-delay") {
@@ -181,7 +180,7 @@ int main(int argc, char** argv) {
                 std::cerr << "error: --max-delay delay must be >= 0\n";
                 return 1;
             }
-            max_delays.push_back({(int)po, (int)d});
+            sdc.set_max_delay((int)po, (int)d);
             continue;
         }
         if (a == "-c" || a == "--commands") {
@@ -269,16 +268,11 @@ int main(int argc, char** argv) {
 
     g.clean_dangling();
 
-    for (const auto& md : max_delays) {
-        if (md.first >= g.num_pos()) {
-            std::cerr << "error: --max-delay PO index " << md.first
-                      << " out of range (" << g.num_pos() << " POs)\n";
-            return 1;
-        }
-    }
+    if (!sdc.validate(g))
+        return 1;
 
     for (const auto& cmd : commands)
-        run_command(g, cmd, lut_k, period, max_delays);
+        run_command(g, cmd, lut_k, sdc);
 
     g.print_stats();
 

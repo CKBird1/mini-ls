@@ -1,4 +1,5 @@
 #pragma once
+#include "sdc.hpp"
 #include <vector>
 #include <unordered_map>
 #include <utility>
@@ -83,6 +84,7 @@ class aigGraph {
         bool write_blif(const char* path) const;
         bool write_bench(const char* path) const;
 
+        int num_nodes() const { return (int)_nodes.size(); }
         int num_pis() const { return (int)_pis.size(); }
         int num_pos() const { return (int)_pos.size(); }
         int num_ands() const {
@@ -95,8 +97,7 @@ class aigGraph {
 
         void balance();
         void rewrite();
-        void map(int k, int period = -1,
-                 const std::vector<std::pair<int,int>>& max_delays = {});
+        void map(int k, const Constraints& constraints);
 
         void print_stats();
         int max_lev();
