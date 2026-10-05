@@ -28,6 +28,8 @@ int Constraints::get_period() const {
 }
 
 bool Constraints::has_timing() const {
+    //Recognition given to how certain combinations of constraints should in theory
+    //turn this off. That's a mapper-side issue that I won't add for now.
     if(_period >= 0 || (int)_max_delay.size() > 0) return true;
     return false;
 }

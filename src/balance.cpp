@@ -3,7 +3,7 @@
 #include <vector>
 #include <utility>
 
-void aigGraph::balance() {
+void aigGraph::balance(const Constraints& constraints) {
     rebuild_fanouts();
     //Step 1, iterate over all nodes, if not PO, add their personal literal to a new vector size of nodes
     std::vector<std::uint32_t> repl(_nodes.size());
@@ -17,7 +17,7 @@ void aigGraph::balance() {
 
     int n = (int)_nodes.size(); //Need to iterate over only old nodes, not new ones being added
     for(int i = 0; i < n; ++i) {
-        if(!_nodes[i].is_and()) continue;
+        if(!_nodes[i].is_and() || constraints.is_dont_touch(i)) continue;
 
         auto is_leaf = [&](int id, bool inverted) {
             return (inverted || _nodes[id].is_pi_or_const() || _nodes[id].isPo || old_fanout[id] != 1);
@@ -36,7 +36,7 @@ void aigGraph::balance() {
             int next = to_check.back().first;
             bool inve = to_check.back().second;
             to_check.pop_back();
-            if(is_leaf(next, inve)) {
+            if(is_leaf(next, inve) || constraints.is_dont_touch(next)) {
                 leaves.push_back(repl[next] ^ inve);
             } else {
                 to_check.push_back(std::make_pair(_nodes[next].input_a, _nodes[next].invert_a));

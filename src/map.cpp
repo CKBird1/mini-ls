@@ -154,12 +154,20 @@ void aigGraph::map(int k, const Constraints& constraints) {
         //Now start creating new cuts by combining fanin cuts
         int adex = _nodes[nid].input_a;
         int bdex = _nodes[nid].input_b;
-        for(int j = 0; (std::size_t)j < cuts_by_node[adex].size(); ++j) {
+        
+        //Dont touch constraint means we can never use anything other than the identity cut
+        //We must still populate all cuts properly, but we can never 'absorb' this into a lut
+        //It must stay a lut root always. Kahns + pre-lead identity guarantees this always works
+        int adex_max = !constraints.is_dont_touch(adex) ? (int)cuts_by_node[adex].size() : 1;
+        int bdex_max = !constraints.is_dont_touch(bdex) ? (int)cuts_by_node[bdex].size() : 1;
+        
+        for(int j = 0; j < adex_max; ++j) {
             bool full = false;
-            for(int l = 0; (std::size_t)l < cuts_by_node[bdex].size(); ++l) {
+            for(int l = 0; l < bdex_max; ++l) {
                 LutCut ca = cuts_by_node[adex][j];
                 LutCut cb = cuts_by_node[bdex][l];
                 LutCut nc = upper_cut(ca, cb, k);
+
                 if(nc.nLeaves == 0) continue;
                 int max_delay = 0;
                 float area = 0.f;

@@ -77,3 +77,7 @@ Added --max-delay i:N as an option into mini-ls. It will do the same as set_max_
 ## Day 19 (10-2-2026)
 
 I was sick for a couple days, so picking back up. For now I was getting quite bothered that as I went along adding some timing constraint relevance to map, the engine map + aig was starting to be the 'owner' of constraints rather than simply the reader/user. I know going forward that will not fly as I eventually intend to turn this into a multi-netlist engine. So I created sdc.hpp/cpp class called Constraints that holds the relevant constraint data, and then wired it into map so it doesn't 'own' this data. I also setup the class in a way that eventually I can easily attach these constraints to specific objects once naming is implemented and once I want deeper control rather than a simple command line. Eventually I'll have full .sdc reading support to attach to specific objects as needed.
+
+## Day 20 (10-5-2026)
+
+Added dont_touch and false_path to the relevant parts of the code. Plumbed constraint class into rewrite, balance, and map. Rewrite/balance now properly honor don't touch. Map honors both correctly. Generating cut lists still properly fills everything but we will never use any cut other than the identity cut for nodes marked as dont_touch. Tests still match the expected results. One test added to readme that guarantees a specific case works as it should.

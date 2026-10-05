@@ -20,6 +20,8 @@ static void usage(const char* argv0) {
               << "  -K N             LUT size for map (default 6, 2..6)\n"
               << "  --period N       required LUT depth at POs (omit = unconstrained)\n"
               << "  --max-delay i:N  cap PO i (0-based _pos order) to N LUT delays (repeatable)\n"
+              << "  --false-path i   ignore PO i for timing (0-based _pos order, repeatable)\n"
+              << "  --dont-touch N   mark AIG node id N dont-touch (repeatable)\n"
               << "  --gen-npn FILE   write NPN class table and exit\n"
               << "  --gen-rwlib FILE write generated 4-input subgraphs and exit\n"
               << "  --max-ands N     AND cap for --gen-rwlib (default 5, max 8)\n"
@@ -46,9 +48,9 @@ static bool is_known_command(const std::string& cmd) {
 static void run_command(aigGraph& g, const std::string& cmd, int lut_k,
                         const Constraints& sdc) {
     if (cmd == "balance")
-        g.balance();
+        g.balance(sdc);
     else if (cmd == "rewrite")
-        g.rewrite();
+        g.rewrite(sdc);
     else if (cmd == "map")
         g.map(lut_k, sdc);
 }
@@ -181,6 +183,36 @@ int main(int argc, char** argv) {
                 return 1;
             }
             sdc.set_max_delay((int)po, (int)d);
+            continue;
+        }
+        if (a == "--false-path") {
+            if (i + 1 >= argc) {
+                std::cerr << "error: " << a << " requires an argument\n";
+                usage(argv[0]);
+                return 1;
+            }
+            char* end = nullptr;
+            long po = std::strtol(argv[++i], &end, 10);
+            if (end == argv[i] || *end || po < 0) {
+                std::cerr << "error: --false-path PO index must be >= 0\n";
+                return 1;
+            }
+            sdc.set_false_path((int)po);
+            continue;
+        }
+        if (a == "--dont-touch") {
+            if (i + 1 >= argc) {
+                std::cerr << "error: " << a << " requires an argument\n";
+                usage(argv[0]);
+                return 1;
+            }
+            char* end = nullptr;
+            long nid = std::strtol(argv[++i], &end, 10);
+            if (end == argv[i] || *end || nid < 0) {
+                std::cerr << "error: --dont-touch node id must be >= 0\n";
+                return 1;
+            }
+            sdc.set_dont_touch((int)nid);
             continue;
         }
         if (a == "-c" || a == "--commands") {

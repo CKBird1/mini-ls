@@ -27,7 +27,10 @@ size and AND depth. `map` prints LUT count and mapped depth (`luts` / `lev`).
 `--period N` is a unit-delay required time at every PO: delay-optimal cover,
 then one slack-aware area recovery pass, then `wns`. `--max-delay i:N` (repeatable)
 caps PO `i` (`_pos` order) to `N`; with both, that PO’s required time is
-`min(period, N)`.
+`min(period, N)`. `--false-path i` (repeatable) drops PO `i` from required time
+and WNS (`set_false_path`). `--dont-touch N` (repeatable) keeps AIG node `N`:
+balance does not flatten it, rewrite does not swing it, and map fanouts may not
+absorb it (`set_dont_touch`).
 
 ## Engine
 
@@ -36,16 +39,21 @@ caps PO `i` (`_pos` order) to `N`; with both, that PO’s required time is
 - **AIGER I/O** (`src/aiger.cpp`): binary `.aig` and ASCII `.aag`. Combinational
   only; latches rejected.
 - **Balance** (`src/balance.cpp`): associativity/commutativity on AND trees.
-  Huffman combine by level. No OR-trees, no NPN.
+  Huffman combine by level. `--dont-touch N` skips flattening `N` and treats it
+  as a leaf in other trees. No OR-trees, no NPN.
 - **Rewrite** (`src/rewrite.cpp`, `src/rwlib.*`, `src/rwgen.cpp`): 4-input cuts,
   16-bit truth tables, brute-force NPN, exclusive MFFC gain, swing + rollback.
-  Library is `data/npn4.txt` (222 class keys) and `data/rwlib4.txt` (12 NPN
-  classes / 60 graphs, `max_ands=5`).
+  `--dont-touch N` still enumerates cuts at `N`, then skips swing; fanouts union
+  only its identity cut. Library is `data/npn4.txt` (222 class keys) and
+  `data/rwlib4.txt` (12 NPN classes / 60 graphs, `max_ands=5`).
 - **K-LUT map** (`src/map.cpp`): priority cuts, delay then area-flow, reverse
   cover from POs. Optional `--period N` and `--max-delay i:N`: required time at
   PO drivers (per-PO cap, `min` if both), then re-rank cuts that still meet
-  that budget by area-flow. Snapshot (`MappedLut`) feeds `write_blif` and
-  `write_bench`. Default `-K 6`; 64-bit truth tables, so K is 2..6.
+  that budget by area-flow. `--false-path i` makes `po_cap(i)` unconstrained, so
+  that PO is not seeded and is skipped in WNS. `--dont-touch N` lets fanouts of
+  `N` union only its identity cut, so covering hops to `N` as a LUT root.
+  Snapshot (`MappedLut`) feeds `write_blif` and `write_bench`. Default `-K 6`;
+  64-bit truth tables, so K is 2..6.
 
 ## Build and run
 
@@ -56,6 +64,9 @@ make -j
 ./build/mini-ls ~/eda/abc/i10.aig /tmp/i10.blif -c "balance rewrite map" --period 10
 ./build/mini-ls ~/eda/abc/i10.aig /tmp/i10.blif -c "balance rewrite map" --period 12 --max-delay 0:10
 ./build/mini-ls ~/eda/abc/i10.aig /tmp/i10.blif -c "balance rewrite map" --max-delay 0:8
+./build/mini-ls ~/eda/abc/i10.aig /tmp/i10.blif -c "balance rewrite map" --period 10 --false-path 11
+./build/mini-ls ~/eda/abc/i10.aig /tmp/i10.blif -c "balance rewrite map" --dont-touch 259
+./build/mini-ls ~/eda/abc/i10.aig /tmp/i10.blif -c map --dont-touch 259
 ./build/mini-ls ~/eda/abc/i10.aig /tmp/i10.bench -c "balance rewrite map"
 ```
 
@@ -65,6 +76,8 @@ usage: mini-ls <in.aig> [out.aig|out.blif|out.bench] [-c <cmds>]
   -K N          LUT size for map (default 6, 2..6)
   --period N    required LUT depth at every PO (omit = unconstrained)
   --max-delay i:N  cap PO i (0-based _pos order) to N LUT delays (repeatable)
+  --false-path i   ignore PO i for timing (0-based _pos order, repeatable)
+  --dont-touch N   mark AIG node id N dont-touch (repeatable)
 ```
 
 Output suffix selects the writer. Rewrite loads `data/npn4.txt` and
@@ -96,7 +109,8 @@ ABC numbers from [STAGE0.md](STAGE0.md) (`strash` / `balance` / `rewrite` /
 | `balance rewrite map` (`-K 6`) | 723 LUT, lev 10 | 575 LUT, lev 9 |
 
 ABC `cec -n` vs original `i10.aig`: equivalent on the rewritten AIG dump and on
-the mapped BLIF (including after `--period` and `--max-delay`).
+the mapped BLIF (including after `--period`, `--max-delay`, `--false-path`, and
+`--dont-touch`). Map does not rewrite AND nodes.
 
 The AND gap is mostly the rewrite library (12 of 222 4-input NPN classes at
 `max_ands=5`, versus ABC’s practical table). Huffman balance also keeps a few
@@ -136,8 +150,40 @@ over POs that have a cap, not `period - lev`. Recovered line, same AIG:
 spends one level of that slack. `--period 12 --max-delay 0:10` matches
 `--period 12` at chip `luts`/`lev` because PO 0 is not the longest path.
 
+`--false-path i` is `set_false_path` on PO `i`. That endpoint is not seeded and
+is omitted from WNS. `lev` is still max arrival over every PO. Recovered line,
+same `balance rewrite map` AIG. Delay-optimal line for period 12 is `wns = 2`
+(critical arrival 10); false-path 11 drops that PO, so delay-optimal WNS is 3.
+
+| `map` | luts | lev | wns | what it shows |
+|---|---|---|---|---|
+| `--period 12` | 669 | 12 | 0 | every PO may use 12 |
+| `--period 12 --false-path 0` | 669 | 12 | 0 | same chip QoR; PO 0 is off-critical |
+| `--period 12 --false-path 11` | 659 | 12 | 0 | PO 11 was delay-opt critical; 10 fewer LUTs |
+| `--period 10` | 678 | 10 | 0 | every PO may use 10 |
+| `--period 10 --false-path 11` | 670 | 10 | 0 | delay-opt WNS 1; 8 fewer LUTs at lev 10 |
+| `--false-path 11` | 723 | 10 | — | no clock / max-delay: unconstrained cover |
+
+`--dont-touch N` is `set_dont_touch` on AIG node id `N` (const 0, then PIs, then
+ANDs). Balance does not flatten `N`; rewrite does not swing it; map fanouts
+union only its identity cut, so covering implements `N` as a LUT. The id is in
+the graph at read (rewrite does not replace a marked node).
+
+Same i10, `--dont-touch 259`:
+
+| command | without | with 259 |
+|---|---|---|
+| `balance` | 2427 AND, lev 37 | 2428 AND, lev 37 |
+| `balance rewrite` | 2223 AND, lev 37 | 2224 AND, lev 37 |
+| `balance rewrite map` | 723 LUT, lev 10 | 723 LUT, lev 10 (AIG 2224) |
+| `-c map` (raw 2675 AND) | 674 LUT, lev 11 | 675 LUT, lev 12 |
+
+`--dont-touch 1` on `-c map` is a no-op (PI is already a pin).
+
 `tests/and2.aag -c map`: `luts = 1 lev = 1`. `--period 1` is WNS 0; `--period 0`
 is WNS −1. `--period 1 --max-delay 0:0` is WNS −1 (`min(1,0)` on the only PO).
+`--period 1 --false-path 0` still prints `wns = 0` (period keeps timing on; the
+only PO is skipped). `--dont-touch 3` is the AND, still 1 LUT.
 
 mini-pd on the checked-in `.bench` files (quadratic + Abacus, g-cell router):
 
@@ -179,5 +225,6 @@ Had AI 'beautify' this README with formatting and some nicer wording.
 
 ## Next
 
-`--period N` (`create_clock`) and `--max-delay i:N` (`set_max_delay`) are in.
-Still open: `set_false_path` / `set_dont_touch` on the same mapper.
+`--period`, `--max-delay`, `--false-path`, and `--dont-touch` are in on balance,
+rewrite, and map. Next: names so constraints attach to objects, then LUT packing
+and timing-driven remap.

@@ -84,16 +84,20 @@ void aigGraph::load_PIs(std::vector<std::vector<Cut>>& cuts_by_node) {
     }
 }
 
-void aigGraph::enumerate_cuts(std::vector<std::vector<Cut>>& cuts_by_node, int nid) {  
+void aigGraph::enumerate_cuts(std::vector<std::vector<Cut>>& cuts_by_node, int nid,
+                              const Constraints& constraints) {
     Cut cut;
     cut.nLeaves = 1; 
     cut.leaf[0] = nid;
     cuts_by_node[nid].push_back(cut);
     int adex = _nodes[nid].input_a;
     int bdex = _nodes[nid].input_b;
-    for(int j = 0; (std::size_t)j < cuts_by_node[adex].size(); ++j) {
+    int adex_max = !constraints.is_dont_touch(adex) ? (int)cuts_by_node[adex].size() : 1;
+    int bdex_max = !constraints.is_dont_touch(bdex) ? (int)cuts_by_node[bdex].size() : 1;
+
+    for(int j = 0; j < adex_max; ++j) {
         bool full = false;
-        for(int k = 0; (std::size_t)k < cuts_by_node[bdex].size(); ++k) {
+        for(int k = 0; k < bdex_max; ++k) {
             //work with cuts_by_node[adex][j] and cuts_by_node[bdex][k] to make a new union each loop
             Cut ca = cuts_by_node[adex][j];
             Cut cb = cuts_by_node[bdex][k];
@@ -417,7 +421,7 @@ void aigGraph::clean_mffc(int nid) {
     }
 }
 
-void aigGraph::rewrite() {
+void aigGraph::rewrite(const Constraints& constraints) {
     rebuild_fanouts();
     RwLib& lib = RwLib::instance();
 
@@ -430,7 +434,8 @@ void aigGraph::rewrite() {
         int nid = _kahns[kid];
         if(_nodes[nid].tombstone) continue;
         //Other checks no longer needed since _kahns never have po/pi/const/tombstone
-        enumerate_cuts(cuts_by_node, nid);
+        enumerate_cuts(cuts_by_node, nid, constraints);
+        if(constraints.is_dont_touch(nid)) continue;
 
         int deleted; //Will always be initialized later before use
         int best_gain = 0;
@@ -441,7 +446,6 @@ void aigGraph::rewrite() {
         for(int cid = 0; (std::size_t)cid < cuts_by_node[nid].size(); ++cid) {
             Cut& curr_cut = cuts_by_node[nid][cid];
             if(curr_cut.nLeaves == 1 && curr_cut.leaf[0] == nid) continue;
-            
             //calc deleted for this specific cut
             deleted = mffc_size(nid, curr_cut);
             
@@ -488,7 +492,7 @@ void aigGraph::rewrite() {
             cuts_by_node.resize(_nodes.size());
             for(int newid = mark; newid < (int)_nodes.size(); ++newid) {
                 if(!_nodes[newid].is_and()) continue;
-                enumerate_cuts(cuts_by_node, newid);
+                enumerate_cuts(cuts_by_node, newid, constraints);
             }
         }
     }

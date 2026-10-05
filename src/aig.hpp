@@ -95,8 +95,8 @@ class aigGraph {
             return n;
         }
 
-        void balance();
-        void rewrite();
+        void balance(const Constraints& constraints);
+        void rewrite(const Constraints& constraints);
         void map(int k, const Constraints& constraints);
 
         void print_stats();
@@ -118,7 +118,8 @@ class aigGraph {
         Cut upper_cut(Cut ca, Cut cb);
         bool same_cut(Cut ca, Cut cb);
         void load_PIs(std::vector<std::vector<Cut>>& cuts_by_node);
-        void enumerate_cuts(std::vector<std::vector<Cut>>& cuts_by_node, int nid);
+        void enumerate_cuts(std::vector<std::vector<Cut>>& cuts_by_node, int nid,
+                            const Constraints& constraints);
         std::uint16_t eval_tt(std::vector<int>& tts, int id, bool& ok);
         std::uint16_t cut_tt(Cut c, int id, bool& ok);
         bool mffc_process_node(int nid, std::vector<int>& nof, Cut c);
