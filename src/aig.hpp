@@ -88,6 +88,7 @@ class aigGraph {
         int num_nodes() const { return (int)_nodes.size(); }
         int num_pis() const { return (int)_pis.size(); }
         int num_pos() const { return (int)_pos.size(); }
+        int po_index(int nid) const;
         const std::string& name(int id) const { return _names.name(id); }
         int id(const std::string& name) const { return _names.id(name); }
         int num_ands() const {

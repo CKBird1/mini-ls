@@ -30,7 +30,12 @@ caps PO `i` (`_pos` order) to `N`; with both, that PO’s required time is
 `min(period, N)`. `--false-path i` (repeatable) drops PO `i` from required time
 and WNS (`set_false_path`). `--dont-touch N` (repeatable) keeps AIG node `N`:
 balance does not flatten it, rewrite does not swing it, and map fanouts may not
-absorb it (`set_dont_touch`).
+absorb it (`set_dont_touch`). `--sdc FILE` reads a subset SDC file after the
+AIGER names exist (`create_clock -period`, `set_max_delay -to`,
+`set_false_path -to`, `set_dont_touch`). Names are the NameMan strings
+(`V321(2)`, not the BLIF `V321_2_`). `--sdc` and the numeric flags are
+exclusive: if the file is present, `--period` / `--max-delay` /
+`--false-path` / `--dont-touch` are ignored (warning).
 
 ## Engine
 
@@ -56,6 +61,11 @@ absorb it (`set_dont_touch`).
   `N` union only its identity cut, so covering hops to `N` as a LUT root.
   Snapshot (`MappedLut`) feeds `write_blif` and `write_bench`. Default `-K 6`;
   64-bit truth tables, so K is 2..6.
+- **Constraints / SDC** (`src/sdc.hpp`, `src/sdc.cpp`, `src/sdc_read.cpp`):
+  numeric `Constraints` plus a subset `.sdc` reader. `create_clock` is a virtual
+  clock (no pin). `-to` / `set_dont_touch` resolve through `id(name)` and
+  `po_index`. `--sdc` and the numeric CLI flags are exclusive. No Tcl,
+  wildcards, or `-from`/`-through`.
 
 ## Build and run
 
@@ -70,6 +80,7 @@ make -j
 ./build/mini-ls ~/eda/abc/i10.aig /tmp/i10.blif -c "balance rewrite map" --dont-touch 259
 ./build/mini-ls ~/eda/abc/i10.aig /tmp/i10.blif -c map --dont-touch 259
 ./build/mini-ls ~/eda/abc/i10.aig /tmp/i10.bench -c "balance rewrite map"
+./build/mini-ls ~/eda/abc/i10.aig /tmp/i10.blif -c "balance rewrite map" --sdc constraints.sdc
 ```
 
 ```text
@@ -80,6 +91,7 @@ usage: mini-ls <in.aig> [out.aig|out.blif|out.bench] [-c <cmds>]
   --max-delay i:N  cap PO i (0-based _pos order) to N LUT delays (repeatable)
   --false-path i   ignore PO i for timing (0-based _pos order, repeatable)
   --dont-touch N   mark AIG node id N dont-touch (repeatable)
+  --sdc FILE       subset SDC (exclusive with the numeric constraint flags)
 ```
 
 Output suffix selects the writer. Rewrite loads `data/npn4.txt` and
@@ -209,6 +221,7 @@ i10’s 18 overlaps are the invented unit-cell floorplan versus Abacus (die
 | `src/rwlib.*` `src/rwgen.cpp` | rewrite library + generator |
 | `src/map.cpp` | K-LUT map, BLIF / bench writers |
 | `src/sdc.hpp` `src/sdc.cpp` | Constraints: period, max-delay, false-path, dont-touch |
+| `src/sdc_read.cpp` | subset `.sdc` reader (`--sdc`) |
 | `src/main.cpp` | CLI |
 | `data/npn4.txt` | 222 NPN class keys |
 | `data/rwlib4.txt` | 12-class / 60-graph library |
@@ -219,8 +232,9 @@ i10’s 18 overlaps are the invented unit-cell floorplan versus Abacus (die
 
 Combinational AIGER. LUT K = 2..6. Rewrite library is the 12-class
 `max_ands=5` snapshot. Mapping does not build a second in-memory LUT graph
-beyond the cover snapshot. No Liberty STA, no CLB packing, no Verilog parser
-in this repo.
+beyond the cover snapshot. SDC is a line-oriented subset (no Tcl, wildcards,
+`-from`/`-through`, generated clocks). No Liberty STA, no CLB packing, no
+Verilog parser in this repo.
 
 ## Notes
 
@@ -228,6 +242,5 @@ Had AI 'beautify' this README with formatting and some nicer wording.
 
 ## Next
 
-Names are in (AIGER symbols, `n{id}` for the rest, BLIF/bench emit). Constraints
-still bind by index. Next: a subset `.sdc` reader, then LUT packing and
-timing-driven remap.
+Subset SDC is in (`--sdc`, name bind through `id` / `po_index`). `--sdc` and the
+numeric CLI flags are exclusive. Next: LUT packing and timing-driven remap.

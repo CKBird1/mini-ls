@@ -22,6 +22,9 @@ static void usage(const char* argv0) {
               << "  --max-delay i:N  cap PO i (0-based _pos order) to N LUT delays (repeatable)\n"
               << "  --false-path i   ignore PO i for timing (0-based _pos order, repeatable)\n"
               << "  --dont-touch N   mark AIG node id N dont-touch (repeatable)\n"
+              << "  --sdc FILE       subset SDC (create_clock / set_max_delay -to /\n"
+              << "                   set_false_path -to / set_dont_touch); exclusive with\n"
+              << "                   --period / --max-delay / --false-path / --dont-touch\n"
               << "  --gen-npn FILE   write NPN class table and exit\n"
               << "  --gen-rwlib FILE write generated 4-input subgraphs and exit\n"
               << "  --max-ands N     AND cap for --gen-rwlib (default 5, max 8)\n"
@@ -64,6 +67,8 @@ int main(int argc, char** argv) {
     const char* rwlib_path = kRwlibPath;
     int gen_max_ands = 5;
     int lut_k = 6;
+    const char* sdc_path = nullptr;
+    bool saw_cli_constraint = false;
     Constraints sdc;
     std::vector<std::string> commands;
 
@@ -157,6 +162,7 @@ int main(int argc, char** argv) {
                 return 1;
             }
             sdc.set_period((int)v);
+            saw_cli_constraint = true;
             continue;
         }
         if (a == "--max-delay") {
@@ -183,6 +189,7 @@ int main(int argc, char** argv) {
                 return 1;
             }
             sdc.set_max_delay((int)po, (int)d);
+            saw_cli_constraint = true;
             continue;
         }
         if (a == "--false-path") {
@@ -198,6 +205,7 @@ int main(int argc, char** argv) {
                 return 1;
             }
             sdc.set_false_path((int)po);
+            saw_cli_constraint = true;
             continue;
         }
         if (a == "--dont-touch") {
@@ -213,6 +221,16 @@ int main(int argc, char** argv) {
                 return 1;
             }
             sdc.set_dont_touch((int)nid);
+            saw_cli_constraint = true;
+            continue;
+        }
+        if (a == "--sdc") {
+            if (i + 1 >= argc) {
+                std::cerr << "error: " << a << " requires an argument\n";
+                usage(argv[0]);
+                return 1;
+            }
+            sdc_path = argv[++i];
             continue;
         }
         if (a == "-c" || a == "--commands") {
@@ -299,6 +317,16 @@ int main(int argc, char** argv) {
         return 1;
 
     g.clean_dangling();
+
+    if (sdc_path) {
+        if (saw_cli_constraint) {
+            std::cerr << "warning: --sdc given; ignoring --period / --max-delay"
+                      << " / --false-path / --dont-touch\n";
+        }
+        sdc = Constraints();
+        if (!read_sdc(sdc_path, g, sdc))
+            return 1;
+    }
 
     if (!sdc.validate(g))
         return 1;

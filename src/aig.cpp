@@ -72,6 +72,13 @@ uint32_t aigGraph::create_po(int a, bool ainv) {
     return make_lit((int)tmp.id, false);
 }
 
+int aigGraph::po_index(int nid) const {
+    for(int i = 0; i < (int)_pos.size(); ++i) {
+        if(_pos[i] == nid) return i;
+    }
+    return -1;
+}
+
 void aigGraph::print_stats() {
     int lev = max_lev();
 

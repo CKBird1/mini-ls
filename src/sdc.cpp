@@ -84,3 +84,55 @@ bool Constraints::validate(const aigGraph& g) const {
     }
     return true;
 }
+
+bool Constraints::bind_max_delay(const aigGraph& g, const std::string& name, int n) {
+    int nid = g.id(name);
+    if (nid < 0) {
+        std::cerr << "error: sdc: unknown name '" << name << "'\n";
+        return false;
+    }
+    int po = g.po_index(nid);
+    if (po < 0) {
+        std::cerr << "error: sdc: '" << name << "' is not a PO\n";
+        return false;
+    }
+    set_max_delay(po, n);
+    return true;
+}
+
+bool Constraints::bind_false_path(const aigGraph& g, const std::string& name) {
+    int nid = g.id(name);
+    if (nid < 0) {
+        std::cerr << "error: sdc: unknown name '" << name << "'\n";
+        return false;
+    }
+    int po = g.po_index(nid);
+    if (po < 0) {
+        std::cerr << "error: sdc: '" << name << "' is not a PO\n";
+        return false;
+    }
+    set_false_path(po);
+    return true;
+}
+
+bool Constraints::bind_dont_touch(const aigGraph& g, const std::string& name) {
+    int nid = g.id(name);
+    if (nid < 0) {
+        std::cerr << "error: sdc: unknown name '" << name << "'\n";
+        return false;
+    }
+    set_dont_touch(nid);
+    return true;
+}
+
+bool Constraints::bind_max_delay_all_outputs(const aigGraph& g, int n) {
+    for (int i = 0; i < g.num_pos(); ++i)
+        set_max_delay(i, n);
+    return true;
+}
+
+bool Constraints::bind_false_path_all_outputs(const aigGraph& g) {
+    for (int i = 0; i < g.num_pos(); ++i)
+        set_false_path(i);
+    return true;
+}
