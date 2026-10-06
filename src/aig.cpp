@@ -7,6 +7,7 @@ aigGraph::aigGraph() {
     aigNode const0(true);
     const0.id = _nodes.size();
     _nodes.push_back(const0);
+    _names.set_name(const0.id);
 }
 
 uint32_t aigGraph::create_and(int a, bool ainv, int b, bool binv) {
@@ -45,6 +46,7 @@ uint32_t aigGraph::create_and(int a, bool ainv, int b, bool binv) {
     _nodes[a].fanouts.push_back(tmp.id);
     _nodes[b].fanouts.push_back(tmp.id);
     _hashedNodes[lookup] = tmp.id;
+    _names.set_name(tmp.id);
 
     return make_lit((int)tmp.id, false);
 }
@@ -54,6 +56,7 @@ uint32_t aigGraph::create_pi() {
     tmp.id = _nodes.size();
     _nodes.push_back(tmp);
     _pis.push_back(tmp.id);
+    _names.set_name(tmp.id);
     return make_lit((int)tmp.id, false);
 }
 
@@ -63,8 +66,8 @@ uint32_t aigGraph::create_po(int a, bool ainv) {
     tmp.level = _nodes[a].level; //Don't increment, just absorb from above
     _nodes.push_back(tmp);
     _pos.push_back(tmp.id);
-
     _nodes[a].fanouts.push_back(tmp.id);
+    _names.set_name(tmp.id);
 
     return make_lit((int)tmp.id, false);
 }

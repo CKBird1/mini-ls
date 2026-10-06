@@ -372,6 +372,7 @@ void aigGraph::rollback_rwgraph(int mark) {
         }
         _nodes.pop_back();
     }
+    _names.shrink_to((int)_nodes.size()); //Drop suffix, unbind names
 }
 
 void aigGraph::check_delete(int nid, std::vector<int>& node_is_dead) {    

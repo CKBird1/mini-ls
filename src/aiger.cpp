@@ -1,6 +1,7 @@
 #include "aig.hpp"
 
 #include <cstdint>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -106,6 +107,66 @@ bool aigGraph::read_aiger(const char* path) {
         return true;
     };
 
+    auto read_symbols = [&]() -> bool {
+        while (std::getline(in, line)) {
+            if (!line.empty() && line.back() == '\r') {
+                line.pop_back();
+            }
+            if (line.empty()) {
+                continue;
+            }
+            if (line[0] == 'c') {
+                break;
+            }
+            const char kind = line[0];
+            if (kind == 'l') {
+                return fail("sequential aiger (latches) not supported");
+            }
+            if (kind != 'i' && kind != 'o' && kind != 'a') {
+                continue;
+            }
+
+            char* end = nullptr;
+            const long idx = std::strtol(line.c_str() + 1, &end, 10);
+            if (end == line.c_str() + 1 || idx < 0) {
+                return fail("bad symbol index");
+            }
+            while (*end == ' ' || *end == '\t') {
+                ++end;
+            }
+            if (!*end) {
+                return fail("empty symbol name");
+            }
+            const std::string ident(end);
+
+            int nid = -1;
+            if (kind == 'i') {
+                if (idx >= (long)_pis.size()) {
+                    return fail("i symbol index out of range");
+                }
+                nid = _pis[(std::size_t)idx];
+            } else if (kind == 'o') {
+                if (idx >= (long)_pos.size()) {
+                    return fail("o symbol index out of range");
+                }
+                nid = _pos[(std::size_t)idx];
+            } else {
+                const uint32_t var = I + 1 + (uint32_t)idx;
+                if (var >= var_lit.size() || !defined[var]) {
+                    return fail("a symbol index out of range");
+                }
+                nid = lit_id(var_lit[var]);
+            }
+
+            const std::string gen = "n" + std::to_string(nid);
+            if (_names.has_name(nid) && _names.name(nid) != gen) {
+                continue;
+            }
+            _names.set_name(nid, ident);
+        }
+        return true;
+    };
+
     if (binary) {
         for (uint32_t i = 1; i <= I; ++i) {
             var_lit[i] = create_pi();
@@ -154,7 +215,7 @@ bool aigGraph::read_aiger(const char* path) {
             }
             create_po(lit_id(our), lit_inv(our));
         }
-        return true;
+        return read_symbols();
     }
 
     // ASCII .aag
@@ -212,7 +273,7 @@ bool aigGraph::read_aiger(const char* path) {
         }
         create_po(lit_id(our), lit_inv(our));
     }
-    return true;
+    return read_symbols();
 }
 
 static bool encode_u32(std::ostream& out, uint32_t x) {
@@ -339,6 +400,23 @@ bool aigGraph::write_aiger(const char* path) const {
         } else {
             out << lhs << ' ' << rhs0 << ' ' << rhs1 << '\n';
         }
+    }
+
+    auto emit_sym = [&](char kind, uint32_t idx, int nid) {
+        const std::string& nm = _names.name(nid);
+        if (nm.empty() || nm == "n" + std::to_string(nid)) {
+            return;
+        }
+        out << kind << idx << ' ' << nm << '\n';
+    };
+    for (uint32_t k = 0; k < I; ++k) {
+        emit_sym('i', k, _pis[k]);
+    }
+    for (uint32_t k = 0; k < O; ++k) {
+        emit_sym('o', k, _pos[k]);
+    }
+    for (uint32_t k = 0; k < A; ++k) {
+        emit_sym('a', k, ands[k]);
     }
 
     if (!out) {

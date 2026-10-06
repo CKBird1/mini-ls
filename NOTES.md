@@ -81,3 +81,5 @@ I was sick for a couple days, so picking back up. For now I was getting quite bo
 ## Day 20 (10-5-2026)
 
 Added dont_touch and false_path to the relevant parts of the code. Plumbed constraint class into rewrite, balance, and map. Rewrite/balance now properly honor don't touch. Map honors both correctly. Generating cut lists still properly fills everything but we will never use any cut other than the identity cut for nodes marked as dont_touch. Tests still match the expected results. One test added to readme that guarantees a specific case works as it should.
+
+Added NameMan, a name manager class that is meant to be instantiated per-netlist. Currently since only AIG netlist exists, AIG instantiates it and then uses it to track, name, rename, and clear names associated with the netlist. This is useful not just for this tool being an actual human-usable engine (readable without requiring dissecting generated names), but also for future implementations like .sdc reader and RTL reader/parser.

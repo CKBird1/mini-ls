@@ -398,6 +398,19 @@ static std::string blif_model_name(const char* path) {
     return p;
 }
 
+// BLIF / mini-pd identifiers: [A-Za-z_][A-Za-z0-9_]*. Keep the table's original
+// string for lookup; emit a legal form (V321(2) -> V321_2_).
+static std::string emit_name(const std::string& raw, int id) {
+    std::string p = raw.empty() ? ("n" + std::to_string(id)) : raw;
+    for (char& c : p) {
+        if (!std::isalnum((unsigned char)c) && c != '_')
+            c = '_';
+    }
+    if (p.empty() || !(std::isalpha((unsigned char)p[0]) || p[0] == '_'))
+        p.insert(p.begin(), '_');
+    return p;
+}
+
 // Onset cubes. Pin p of .names is leaf[p]; that pin is bit p of minterm x (LSB = leaf[0]).
 static void write_onset(std::ostream& out, int nLeaves, std::uint64_t tt) {
     if (nLeaves <= 0) {
@@ -452,23 +465,23 @@ bool aigGraph::write_blif(const char* path) const {
     out << ".model " << blif_model_name(path) << '\n';
     out << ".inputs";
     for (int pi : _pis)
-        out << " n" << pi;
+        out << " " << emit_name(name(pi), pi);
     out << '\n';
     out << ".outputs";
     for (int po : _pos)
-        out << " n" << po;
+        out << " " << emit_name(name(po), po);
     out << '\n';
 
     if (need_const0) {
-        out << ".names n0\n";
+        out << ".names " << emit_name(name(0), 0) << '\n';
         out << " 0\n";
     }
 
     for (const MappedLut& m : _mapped_luts) {
         out << ".names";
         for (int j = 0; j < m.nLeaves; ++j)
-            out << " n" << m.leaf[j];
-        out << " n" << m.root << '\n';
+            out << " " << emit_name(name(m.leaf[j]), m.leaf[j]);
+        out << " " << emit_name(name(m.root), m.root) << '\n';
         write_onset(out, m.nLeaves, m.tt);
     }
 
@@ -476,7 +489,7 @@ bool aigGraph::write_blif(const char* path) const {
     for (int po : _pos) {
         int d = _nodes[po].input_a;
         bool inv = _nodes[po].invert_a;
-        out << ".names n" << d << " n" << po << '\n';
+        out << ".names " << emit_name(name(d), d) << " " << emit_name(name(po), po) << '\n';
         out << (inv ? '0' : '1') << " 1\n";
     }
 
@@ -596,13 +609,13 @@ bool aigGraph::write_bench(const char* path) const {
     out << "DIE 0 0 " << die_w << " " << die_h << "\n";
     out << "ROWS " << n_rows << " " << row_h << "\n";
     for (int id : cells)
-        out << "CELL n" << id << " " << cell_w << " " << cell_h << "\n";
+        out << "CELL " << emit_name(name(id), id) << " " << cell_w << " " << cell_h << "\n";
     for (int net = 0; net < (int)net_pins.size(); ++net) {
         if ((int)net_pins[net].size() < 2)
             continue;
-        out << "NET n" << net;
+        out << "NET " << emit_name(name(net), net);
         for (int cell : net_pins[net])
-            out << " n" << cell;
+            out << " " << emit_name(name(cell), cell);
         out << "\n";
     }
     if (!out)

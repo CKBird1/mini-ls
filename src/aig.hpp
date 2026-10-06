@@ -1,4 +1,5 @@
 #pragma once
+#include "name.hpp"
 #include "sdc.hpp"
 #include <vector>
 #include <unordered_map>
@@ -87,6 +88,8 @@ class aigGraph {
         int num_nodes() const { return (int)_nodes.size(); }
         int num_pis() const { return (int)_pis.size(); }
         int num_pos() const { return (int)_pos.size(); }
+        const std::string& name(int id) const { return _names.name(id); }
+        int id(const std::string& name) const { return _names.id(name); }
         int num_ands() const {
             int n = 0;
             for (const auto& node : _nodes) {
@@ -108,6 +111,7 @@ class aigGraph {
         std::vector<int> _pis;
         std::vector<int> _pos;
         std::unordered_map<std::uint64_t, int> _hashedNodes;
+        NameMan _names;
 
         std::uint64_t and_key(int index);
         void rebuild_fanouts();

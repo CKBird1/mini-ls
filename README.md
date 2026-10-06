@@ -37,7 +37,9 @@ absorb it (`set_dont_touch`).
 - **AIG** (`src/aig.cpp`): structural hashing, const-fold (`x&0`, `x&1`, `x&x`,
   `x&~x`), tombstone sweep, fanin/fanout, PI/PO/const0.
 - **AIGER I/O** (`src/aiger.cpp`): binary `.aig` and ASCII `.aag`. Combinational
-  only; latches rejected.
+  only; latches rejected. Reads `i`/`o`/`a` symbols into a per-netlist name
+  table (`src/name.hpp`); unnamed nodes get `n{id}`. Write dumps non-generated
+  symbols. BLIF/bench emit those names (`V321(2)` → `V321_2_`).
 - **Balance** (`src/balance.cpp`): associativity/commutativity on AND trees.
   Huffman combine by level. `--dont-touch N` skips flattening `N` and treats it
   as a leaf in other trees. No OR-trees, no NPN.
@@ -200,7 +202,8 @@ i10’s 18 overlaps are the invented unit-cell floorplan versus Abacus (die
 | Path | Role |
 |---|---|
 | `src/aig.hpp` `src/aig.cpp` | AIG graph, unique table, sweep, stats |
-| `src/aiger.cpp` | AIGER read / write |
+| `src/name.hpp` `src/name.cpp` | NameMan: id ↔ name, owned by the AIG |
+| `src/aiger.cpp` | AIGER read / write (including `i`/`o`/`a` symbols) |
 | `src/balance.cpp` | Huffman AND-tree balance |
 | `src/rewrite.cpp` | 4-cuts, NPN, MFFC, swing |
 | `src/rwlib.*` `src/rwgen.cpp` | rewrite library + generator |
@@ -225,6 +228,6 @@ Had AI 'beautify' this README with formatting and some nicer wording.
 
 ## Next
 
-`--period`, `--max-delay`, `--false-path`, and `--dont-touch` are in on balance,
-rewrite, and map. Next: names so constraints attach to objects, then LUT packing
-and timing-driven remap.
+Names are in (AIGER symbols, `n{id}` for the rest, BLIF/bench emit). Constraints
+still bind by index. Next: a subset `.sdc` reader, then LUT packing and
+timing-driven remap.
