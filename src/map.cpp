@@ -1,11 +1,7 @@
 #include "aig.hpp"
 #include "sdc.hpp"
 #include <algorithm>
-#include <cctype>
-#include <cmath>
-#include <fstream>
 #include <iostream>
-#include <string>
 #include <vector>
 #include <climits>
 
@@ -112,7 +108,6 @@ LutCut aigGraph::upper_cut(LutCut ca, LutCut cb, int k) {
 }
 
 void aigGraph::map(int k, const Constraints& constraints) {
-    _mapped_luts.clear();
     _has_mapping = false;
     rebuild_fanouts();
     rebuild_order();
@@ -327,21 +322,32 @@ void aigGraph::map(int k, const Constraints& constraints) {
     
     }
 
-    _mapped_luts.clear();
-    _mapped_luts.reserve((std::size_t)count_of_lut);
+    LutGraph = lutGraph(); //Set it to empty
+    aig_to_lut.clear();
+    aig_to_lut.resize((std::size_t)_nodes.size(), -1);
+
+    if(!populate_pis(LutGraph)) { std::cout << "error" << std::endl; }
+
+    // Rewrite can make a cut leaf a larger AIG id than the root, so create
+    // LUT cells only once every pin is already in aig_to_lut.
+    bool progress = true;
+    while (progress) {
+        progress = false;
+        for (int i = 0; i < (int)used.size(); ++i) {
+            if (!used[i] || aig_to_lut[i] >= 0) continue;
+            if ((int)cuts_by_node[i].size() < 2) continue;
+            const LutCut& lc = cuts_by_node[i][1];
+            if (add_lut_to_graph(LutGraph, i, lc.leaf, lc.nLeaves, lc.tt))
+                progress = true;
+        }
+    }
     for (int i = 0; i < (int)used.size(); ++i) {
-        if (!used[i]) continue;
-        if ((int)cuts_by_node[i].size() < 2) continue;
-        const LutCut& lc = cuts_by_node[i][1];
-        MappedLut m;
-        m.root = i;
-        m.nLeaves = lc.nLeaves;
-        m.tt = lc.tt;
-        for (int j = 0; j < lc.nLeaves && j < 8; ++j)
-            m.leaf[j] = lc.leaf[j];
-        _mapped_luts.push_back(m);
+        if (used[i] && aig_to_lut[i] < 0)
+            std::cout << "Error" << std::endl;
     }
     _has_mapping = true;
+
+    if(!populate_pos(LutGraph)) { std::cout << "Error" << std::endl; }
 }
 
 void aigGraph::process_lut_root(const std::vector<std::vector<LutCut>>& cuts_by_node, std::vector<char>& used, int nid) {
@@ -376,251 +382,58 @@ void aigGraph::map_cover(const std::vector<std::vector<LutCut>>& cuts_by_node, s
     }
 }
 
-static bool blif_fail(const std::string& msg) {
-    std::cerr << "blif: " << msg << '\n';
+bool aigGraph::populate_pis(lutGraph& l) {
+    aig_to_lut[0] = 0;
+    for(int i = 0; i < num_pis(); ++i) {
+        int nid = _pis[i];
+        int pi = l.create_pi();
+        l.set_name(pi, name(nid));
+        aig_to_lut[nid] = pi; 
+    }
+    return true;
+}
+
+bool aigGraph::populate_pos(lutGraph& l) {
+    for(int i = 0; i < num_pos(); ++i) {
+        int nid = _pos[i];
+        int driver = _nodes[nid].input_a;
+        bool invert = _nodes[nid].invert_a;
+        if(aig_to_lut[driver] == -1) return false;
+        int po = l.create_po(aig_to_lut[driver], invert);
+        l.set_name(po, name(nid));
+        aig_to_lut[nid] = po;
+    }
+    return true;
+}
+
+bool aigGraph::add_lut_to_graph(lutGraph& l, int root, const int* leaves, int nLeaves,
+                               std::uint64_t tt) {
+    int pins[8] = {};
+    for (int i = 0; i < nLeaves; ++i) {
+        int mapped = aig_to_lut[leaves[i]];
+        if (mapped < 0) return false;
+        pins[i] = mapped;
+    }
+    int lut = l.create_lut(pins, nLeaves, tt);
+    l.set_name(lut, name(root));
+    aig_to_lut[root] = lut;
+    return true;
+}
+
+// File-local emit helper. Not an aigGraph method.
+static bool emit_fail(const char* kind, const std::string& msg) {
+    std::cerr << kind << ": " << msg << '\n';
     return false;
-}
-
-static std::string blif_model_name(const char* path) {
-    std::string p = path ? path : "mapped";
-    auto slash = p.find_last_of("/\\");
-    if (slash != std::string::npos)
-        p = p.substr(slash + 1);
-    auto dot = p.find_last_of('.');
-    if (dot != std::string::npos)
-        p = p.substr(0, dot);
-    if (p.empty())
-        p = "mapped";
-    for (char& c : p) {
-        if (!std::isalnum((unsigned char)c) && c != '_')
-            c = '_';
-    }
-    return p;
-}
-
-// BLIF / mini-pd identifiers: [A-Za-z_][A-Za-z0-9_]*. Keep the table's original
-// string for lookup; emit a legal form (V321(2) -> V321_2_).
-static std::string emit_name(const std::string& raw, int id) {
-    std::string p = raw.empty() ? ("n" + std::to_string(id)) : raw;
-    for (char& c : p) {
-        if (!std::isalnum((unsigned char)c) && c != '_')
-            c = '_';
-    }
-    if (p.empty() || !(std::isalpha((unsigned char)p[0]) || p[0] == '_'))
-        p.insert(p.begin(), '_');
-    return p;
-}
-
-// Onset cubes. Pin p of .names is leaf[p]; that pin is bit p of minterm x (LSB = leaf[0]).
-static void write_onset(std::ostream& out, int nLeaves, std::uint64_t tt) {
-    if (nLeaves <= 0) {
-        if (tt & 1ull)
-            out << "1\n";
-        else
-            out << " 0\n";
-        return;
-    }
-    const int n = 1 << nLeaves;
-    for (int x = 0; x < n; ++x) {
-        if (((tt >> x) & 1ull) == 0)
-            continue;
-        for (int p = 0; p < nLeaves; ++p)
-            out << ((x & (1 << p)) ? '1' : '0');
-        out << " 1\n";
-    }
 }
 
 bool aigGraph::write_blif(const char* path) const {
-    if (!path || !*path)
-        return blif_fail("empty write path");
     if (!_has_mapping)
-        return blif_fail("map has not been run");
-
-    std::ofstream out(path);
-    if (!out)
-        return blif_fail(std::string("cannot write ") + path);
-
-    bool need_const0 = false;
-    for (const MappedLut& m : _mapped_luts) {
-        if (m.nLeaves < 0 || m.nLeaves > 6)
-            return blif_fail("LUT has more than 6 inputs (tt is 64-bit)");
-        for (int j = 0; j < m.nLeaves; ++j) {
-            int id = m.leaf[j];
-            if (id < 0 || id >= (int)_nodes.size())
-                return blif_fail("LUT leaf id out of range");
-            if (_nodes[id].isConst)
-                need_const0 = true;
-        }
-    }
-    for (int po : _pos) {
-        if (po < 0 || po >= (int)_nodes.size() || !_nodes[po].isPo)
-            return blif_fail("bad PO id");
-        int d = _nodes[po].input_a;
-        if (d < 0 || d >= (int)_nodes.size())
-            return blif_fail("PO driver out of range");
-        if (_nodes[d].isConst)
-            need_const0 = true;
-    }
-
-    out << ".model " << blif_model_name(path) << '\n';
-    out << ".inputs";
-    for (int pi : _pis)
-        out << " " << emit_name(name(pi), pi);
-    out << '\n';
-    out << ".outputs";
-    for (int po : _pos)
-        out << " " << emit_name(name(po), po);
-    out << '\n';
-
-    if (need_const0) {
-        out << ".names " << emit_name(name(0), 0) << '\n';
-        out << " 0\n";
-    }
-
-    for (const MappedLut& m : _mapped_luts) {
-        out << ".names";
-        for (int j = 0; j < m.nLeaves; ++j)
-            out << " " << emit_name(name(m.leaf[j]), m.leaf[j]);
-        out << " " << emit_name(name(m.root), m.root) << '\n';
-        write_onset(out, m.nLeaves, m.tt);
-    }
-
-    // One buffer/inverter per PO so .outputs are dedicated nets and invert_a is honored.
-    for (int po : _pos) {
-        int d = _nodes[po].input_a;
-        bool inv = _nodes[po].invert_a;
-        out << ".names " << emit_name(name(d), d) << " " << emit_name(name(po), po) << '\n';
-        out << (inv ? '0' : '1') << " 1\n";
-    }
-
-    out << ".end\n";
-    if (!out)
-        return blif_fail(std::string("write failed: ") + path);
-    return true;
-}
-
-static bool bench_fail(const std::string& msg) {
-    std::cerr << "bench: " << msg << '\n';
-    return false;
+        return emit_fail("blif", "map has not been run");
+    return LutGraph.write_blif(path);
 }
 
 bool aigGraph::write_bench(const char* path) const {
-    if (!path || !*path)
-        return bench_fail("empty write path");
     if (!_has_mapping)
-        return bench_fail("map has not been run");
-
-    bool need_const0 = false;
-    for (const MappedLut& m : _mapped_luts) {
-        if (m.nLeaves < 0 || m.nLeaves > 6)
-            return bench_fail("LUT has more than 6 inputs");
-        for (int j = 0; j < m.nLeaves; ++j) {
-            int id = m.leaf[j];
-            if (id < 0 || id >= (int)_nodes.size())
-                return bench_fail("LUT leaf id out of range");
-            if (_nodes[id].isConst)
-                need_const0 = true;
-        }
-    }
-    for (int po : _pos) {
-        if (po < 0 || po >= (int)_nodes.size() || !_nodes[po].isPo)
-            return bench_fail("bad PO id");
-        int d = _nodes[po].input_a;
-        if (d < 0 || d >= (int)_nodes.size())
-            return bench_fail("PO driver out of range");
-        if (_nodes[d].isConst)
-            need_const0 = true;
-    }
-
-    std::vector<int> cells;
-    std::vector<char> is_cell((int)_nodes.size(), 0);
-    auto add_cell = [&](int id) -> bool {
-        if (id < 0 || id >= (int)_nodes.size())
-            return false;
-        if (!is_cell[id]) {
-            is_cell[id] = 1;
-            cells.push_back(id);
-        }
-        return true;
-    };
-    if (need_const0 && !add_cell(0))
-        return bench_fail("const0 id out of range");
-    for (int pi : _pis) {
-        if (!add_cell(pi))
-            return bench_fail("bad PI id");
-    }
-    for (const MappedLut& m : _mapped_luts) {
-        if (!add_cell(m.root))
-            return bench_fail("LUT root id out of range");
-    }
-    for (int po : _pos) {
-        if (!add_cell(po))
-            return bench_fail("bad PO id");
-    }
-    if (cells.empty())
-        return bench_fail("no cells to place");
-
-    std::vector<std::vector<int>> net_pins((int)_nodes.size());
-    auto add_pin = [&](int net, int cell) -> bool {
-        if (net < 0 || net >= (int)net_pins.size() || !is_cell[cell])
-            return false;
-        auto& pins = net_pins[net];
-        if (std::find(pins.begin(), pins.end(), cell) == pins.end())
-            pins.push_back(cell);
-        return true;
-    };
-    if (need_const0 && !add_pin(0, 0))
-        return bench_fail("const0 net");
-    for (int pi : _pis) {
-        if (!add_pin(pi, pi))
-            return bench_fail("PI net");
-    }
-    for (const MappedLut& m : _mapped_luts) {
-        if (!add_pin(m.root, m.root))
-            return bench_fail("LUT output net");
-        for (int j = 0; j < m.nLeaves; ++j) {
-            if (!add_pin(m.leaf[j], m.root))
-                return bench_fail("LUT leaf is not a PI, const, or mapped LUT");
-        }
-    }
-    for (int po : _pos) {
-        int d = _nodes[po].input_a;
-        if (!add_pin(d, po))
-            return bench_fail("PO driver is not a placed cell");
-    }
-
-    const int cell_w = 4;
-    const int cell_h = 2;
-    const int row_h = 10;
-    const int n_cells = (int)cells.size();
-    const double area = (double)n_cells * cell_w * cell_h / 0.5;
-    const int side = std::max(cell_w, (int)std::ceil(std::sqrt(area)));
-    const int n_rows = std::max(1, (int)std::lround((double)side / row_h));
-    const int cells_per_row = (n_cells + n_rows - 1) / n_rows;
-    const int die_w = cells_per_row * cell_w;
-    const int die_h = n_rows * row_h;
-
-    std::ofstream out(path);
-    if (!out)
-        return bench_fail(std::string("cannot write ") + path);
-
-    out << "# mapped LUT netlist; unit cells " << cell_w << "x" << cell_h
-        << ", row " << row_h << ", ~50% util\n";
-    out << "DIE 0 0 " << die_w << " " << die_h << "\n";
-    out << "ROWS " << n_rows << " " << row_h << "\n";
-    for (int id : cells)
-        out << "CELL " << emit_name(name(id), id) << " " << cell_w << " " << cell_h << "\n";
-    for (int net = 0; net < (int)net_pins.size(); ++net) {
-        if ((int)net_pins[net].size() < 2)
-            continue;
-        out << "NET " << emit_name(name(net), net);
-        for (int cell : net_pins[net])
-            out << " " << emit_name(name(cell), cell);
-        out << "\n";
-    }
-    if (!out)
-        return bench_fail(std::string("write failed: ") + path);
-    return true;
+        return emit_fail("bench", "map has not been run");
+    return LutGraph.write_bench(path);
 }
-
-//Write blif and write bench are mostly generated.

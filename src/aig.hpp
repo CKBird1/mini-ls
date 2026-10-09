@@ -1,6 +1,7 @@
 #pragma once
 #include "name.hpp"
 #include "sdc.hpp"
+#include "lut.hpp"
 #include <vector>
 #include <unordered_map>
 #include <utility>
@@ -144,13 +145,13 @@ class aigGraph {
         void map_cover(const std::vector<std::vector<LutCut>>& cuts_by_node, std::vector<char>& used);
         bool cut_better_time(const LutCut& a, const LutCut& b, int req);
 
-        //BLIF emit (filled by map)
-        struct MappedLut {
-            int root = -1;
-            int nLeaves = 0;
-            int leaf[8] = {};
-            std::uint64_t tt = 0;
-        };
-        std::vector<MappedLut> _mapped_luts;
         bool _has_mapping = false;
+
+        //Lut Netlist
+        lutGraph LutGraph;
+        std::vector<int> aig_to_lut;
+        bool populate_pis(lutGraph& l);
+        bool populate_pos(lutGraph& l);
+        bool add_lut_to_graph(lutGraph& l, int root, const int* leaves, int nLeaves,
+                              std::uint64_t tt);
 };
