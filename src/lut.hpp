@@ -48,8 +48,14 @@ class lutGraph {
         int create_po(int d, bool invert);
 
         int num_nodes() const { return (int)_nodes.size(); };
+        int num_luts() const { return (int)_luts.size(); };
         int num_pis() const { return (int)_pis.size(); };
         int num_pos() const { return (int)_pos.size(); };
+        const LutNode& node(int id) const { return _nodes[id]; };
+        int pi(int i) const { return _pis[i]; };
+        int po(int i) const { return _pos[i]; };
+        int lut(int i) const { return _luts[i]; };
+        
         const std::string& name(int id) const { return _names.name(id); }
         int id(const std::string& name) const { return _names.id(name); }
         bool set_name(int id, const std::string& n) { return _names.set_name(id, n); };
@@ -57,9 +63,17 @@ class lutGraph {
         bool write_blif(const char* path) const;
         bool write_bench(const char* path) const;
 
+        //Implementation
+        void repack();
+
+
     private:
         std::vector<LutNode> _nodes;
+        std::vector<int> _luts;
         std::vector<int> _pis;
         std::vector<int> _pos;
         NameMan _names;
+
+        //Implementation
+        bool reaches(int a, int b) const;
 };

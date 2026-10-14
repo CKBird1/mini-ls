@@ -83,6 +83,7 @@ int lutGraph::create_lut(const int* pinI, int np, std::uint64_t table){
     LutNode lut(pinI, np, table);
     lut.id = _nodes.size();
     _nodes.push_back(lut);
+    _luts.push_back(lut.id);
     for(int i = 0; i < lut.nPins; ++i) {
         _nodes[lut.pin[i]].fanouts.push_back(lut.id);
     }
@@ -107,6 +108,66 @@ int lutGraph::create_po(int d, bool invert) {
     _names.set_name(po.id);
     _pos.push_back(po.id);
     return po.id;
+}
+
+bool lutGraph::reaches(int a, int b) const {
+    if(a < 0 || b < 0) return false;
+    if(a >= num_nodes() || b >= num_nodes()) return false;
+    if(a == b) return true;
+    std::vector<int> worklist;
+    std::vector<int> seen((int)_nodes.size(), 0);
+    bool found_loop = false;
+    worklist.push_back(a);
+    seen[a] = 1;
+    while(!worklist.empty()) {
+        int nid = worklist.back();
+        worklist.pop_back();
+        if(!(node(nid).kind == LutKind::Lut)) continue;
+        for(int afo = 0; afo < (int)node(nid).fanouts.size(); ++afo) {
+            if(node(nid).fanouts[afo] == b) {
+                found_loop = true;
+                break;
+            } 
+            if(!seen[node(nid).fanouts[afo]]) {
+                worklist.push_back(node(nid).fanouts[afo]);
+                seen[node(nid).fanouts[afo]] = 1;
+            }
+        }
+        if(found_loop) break;
+    }
+    return found_loop;
+}
+
+void lutGraph::repack() {
+    for(int i = 0; i < num_luts(); ++i) {
+        const LutNode& a = node(lut(i));
+        for(int j = i+1; j < num_luts(); ++j) {
+            const LutNode& b = node(lut(j));
+            std::vector<int> lut_union;
+            std::vector<int> a_pins(a.pin, a.pin+a.nPins);
+            std::vector<int> b_pins(b.pin, b.pin+b.nPins);
+            std::sort(a_pins.begin(), a_pins.end());
+            std::sort(b_pins.begin(), b_pins.end());
+            int ita = 0, itb = 0;
+            while(ita != a.nPins && itb != b.nPins) {
+                if(a_pins[ita] < b_pins[itb]) lut_union.push_back(a_pins[ita++]);
+                else if(a_pins[ita] > b_pins[itb]) lut_union.push_back(b_pins[itb++]);
+                else if(a_pins[ita] == b_pins[itb]) {
+                    lut_union.push_back(a_pins[ita++]); 
+                    itb++;
+                }
+            } //This fills everything until one is empty
+            while(ita != a.nPins) lut_union.push_back(a_pins[ita++]);
+            while(itb != b.nPins) lut_union.push_back(b_pins[itb++]);
+            if((int)lut_union.size() > 6) continue;
+            else {
+                //first is that a can't be in the fanout of b (indirectly neither) and vise versa
+                if(!reaches(a.id, b.id) && !reaches(b.id, a.id)) {
+                    //Now real merge candidate, implement occupancy -> expand -> mutate next
+                }
+            }
+        }
+    }
 }
 
 bool lutGraph::write_blif(const char* path) const {

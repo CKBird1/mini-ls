@@ -85,3 +85,12 @@ Added dont_touch and false_path to the relevant parts of the code. Plumbed const
 Added NameMan, a name manager class that is meant to be instantiated per-netlist. Currently since only AIG netlist exists, AIG instantiates it and then uses it to track, name, rename, and clear names associated with the netlist. This is useful not just for this tool being an actual human-usable engine (readable without requiring dissecting generated names), but also for future implementations like .sdc reader and RTL reader/parser.
 
 Finally added an SDC Parser that can optionally replace all command line constraint inputs. It truly accepts a normal .sdc file, but only uses the 4 implemented constraints. It will eventually accept all of them. It populates the constraint class with what's necessary, using the NameMan class to attach to the correct objects and store the correct information. CLI will always prioritize .sdc over command line inputs. 
+
+## Day 21 (10-8-2026)
+
+Added LutGraph. A new class that stores graphs containing only PI/PO/Const and LUTs. The goal is for this to be the owner of LUT optimizations, merging, repacking etc. Needed to move writers/emitters over as well as previously they were simply reading a cover of the AIG made with luts. Also needed to update the AIG -> LUT cover to create an actual netlist with the covering information, rather than just view it as a blanket over the AIG.
+
+## Day 22 (10-13-2026)
+
+Added some appropriate Getters to ensure we have properly public/private split and usage of LutGraph. Then began on writing repack, with the goal being ultimately to look for cases where we can combine LUTs for more efficient packing. Have the union check, the size check, and the 'loop' or 'We can reach a from b' completed, now need to finish Occupancy -> Expand -> Mutate.
+
