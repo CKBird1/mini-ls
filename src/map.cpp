@@ -348,6 +348,9 @@ void aigGraph::map(int k, const Constraints& constraints) {
     _has_mapping = true;
 
     if(!populate_pos(LutGraph)) { std::cout << "Error" << std::endl; }
+
+    LutGraph.repack();
+    std::cout << "sites = " << LutGraph.num_sites() << std::endl;
 }
 
 void aigGraph::process_lut_root(const std::vector<std::vector<LutCut>>& cuts_by_node, std::vector<char>& used, int nid) {

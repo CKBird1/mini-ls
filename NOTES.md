@@ -94,3 +94,6 @@ Added LutGraph. A new class that stores graphs containing only PI/PO/Const and L
 
 Added some appropriate Getters to ensure we have properly public/private split and usage of LutGraph. Then began on writing repack, with the goal being ultimately to look for cases where we can combine LUTs for more efficient packing. Have the union check, the size check, and the 'loop' or 'We can reach a from b' completed, now need to finish Occupancy -> Expand -> Mutate.
 
+## Day 23 (10-15-2026)
+
+Added LUT Packing. Greedy, always accepts the first one that can accept a pack. Includes creating occupancy list, expanding the truth table out so that it doesn't incorrectly overlap with the other packed truth table, and then mutates both LUTs so that they properly link. "pack_mate" stores the node id that this lut is packed with, and then writer/emitter properly accounts for linked. Added some output, updated NOTES and README etc.

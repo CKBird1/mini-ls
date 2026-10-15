@@ -18,12 +18,14 @@ AIGER (.aig / .aag)
   → Huffman AND-tree balance
   → DAG-aware 4-input rewrite (cuts, TT, NPN, MFFC)
   → priority-cut K-LUT map (K = 2..6)
+  → dual-output LUT pack
   → .aig (frozen AIG)  |  .blif (LUT netlist)  |  .bench (mini-pd)
 ```
 
 CLI runs `balance`, `rewrite`, and `map` in the order given. Mapping covers the
 AIG; it does not rewrite AND nodes in place. `print_stats` still reports AIG
-size and AND depth. `map` prints LUT count and mapped depth (`luts` / `lev`).
+size and AND depth. `map` prints covering LUT count and mapped depth
+(`luts` / `lev`), then packed sites (`sites`) after dual-output pack.
 `--period N` is a unit-delay required time at every PO: delay-optimal cover,
 then one slack-aware area recovery pass, then `wns`. `--max-delay i:N` (repeatable)
 caps PO `i` (`_pos` order) to `N`; with both, that PO’s required time is
@@ -59,8 +61,11 @@ exclusive: if the file is present, `--period` / `--max-delay` /
   that budget by area-flow. `--false-path i` makes `po_cap(i)` unconstrained, so
   that PO is not seeded and is skipped in WNS. `--dont-touch N` lets fanouts of
   `N` union only its identity cut, so covering hops to `N` as a LUT root.
-  Snapshot (`MappedLut`) feeds `write_blif` and `write_bench`. Default `-K 6`;
-  64-bit truth tables, so K is 2..6.
+  Cover fills a live `LutGraph`; greedy dual-output pack then pairs sibling
+  LUTs whose pin union still fits in K (first legal mate). `luts` is the cover;
+  `sites` is packed cells for `.bench` (one cell, two output nets). BLIF keeps
+  two `.names` on the shared pins. Default `-K 6`; 64-bit truth tables, so K is
+  2..6.
 - **Constraints / SDC** (`src/sdc.hpp`, `src/sdc.cpp`, `src/sdc_read.cpp`):
   numeric `Constraints` plus a subset `.sdc` reader. `create_clock` is a virtual
   clock (no pin). `-to` / `set_dont_touch` resolve through `id(name)` and
@@ -120,11 +125,17 @@ ABC numbers from [STAGE0.md](STAGE0.md) (`strash` / `balance` / `rewrite` /
 | read / strash | 2675 AND, lev 50 | 2675 AND, lev 50 |
 | `balance` | 2427 AND, lev 37 | 2396 AND, lev 37 |
 | `balance rewrite` | 2223 AND, lev 37 | 2046 AND, lev 36 |
-| `balance rewrite map` (`-K 6`) | 723 LUT, lev 10 | 575 LUT, lev 9 |
+| `balance rewrite map` (`-K 6`) | 723 LUT, lev 10, 563 sites | 575 LUT, lev 9 |
 
 ABC `cec -n` vs original `i10.aig`: equivalent on the rewritten AIG dump and on
-the mapped BLIF (including after `--period`, `--max-delay`, `--false-path`, and
-`--dont-touch`). Map does not rewrite AND nodes.
+the mapped BLIF (including after `--period`, `--max-delay`, `--false-path`,
+`--dont-touch`, and dual-output pack). Map does not rewrite AND nodes.
+
+Pack is greedy dual-output (fracturable K-LUT): two functions share one site
+when the pin union is ≤ 6 and neither is in the other’s TFO. Unconstrained
+i10: 160 pairs, 723 cover LUTs → **563 sites** (160 fewer `.bench` LUT cells).
+`luts` in the timing tables below is still the cover; `sites` prints after
+`repack()`.
 
 The AND gap is mostly the rewrite library (12 of 222 4-input NPN classes at
 `max_ands=5`, versus ABC’s practical table). Huffman balance also keeps a few
@@ -219,7 +230,8 @@ i10’s 18 overlaps are the invented unit-cell floorplan versus Abacus (die
 | `src/balance.cpp` | Huffman AND-tree balance |
 | `src/rewrite.cpp` | 4-cuts, NPN, MFFC, swing |
 | `src/rwlib.*` `src/rwgen.cpp` | rewrite library + generator |
-| `src/map.cpp` | K-LUT map, BLIF / bench writers |
+| `src/map.cpp` | K-LUT map, fill `LutGraph` |
+| `src/lut.hpp` `src/lut.cpp` | LUT netlist, dual-output pack, BLIF / bench writers |
 | `src/sdc.hpp` `src/sdc.cpp` | Constraints: period, max-delay, false-path, dont-touch |
 | `src/sdc_read.cpp` | subset `.sdc` reader (`--sdc`) |
 | `src/main.cpp` | CLI |
@@ -231,9 +243,9 @@ i10’s 18 overlaps are the invented unit-cell floorplan versus Abacus (die
 ## Limits
 
 Combinational AIGER. LUT K = 2..6. Rewrite library is the 12-class
-`max_ands=5` snapshot. Mapping does not build a second in-memory LUT graph
-beyond the cover snapshot. SDC is a line-oriented subset (no Tcl, wildcards,
-`-from`/`-through`, generated clocks). No Liberty STA, no CLB packing, no
+`max_ands=5` snapshot. Mapping builds a live `LutGraph` and greedy dual-output
+pack (first legal pair). SDC is a line-oriented subset (no Tcl, wildcards,
+`-from`/`-through`, generated clocks). No Liberty STA, no BLE/CLB packing, no
 Verilog parser in this repo.
 
 ## Notes
@@ -242,5 +254,6 @@ Had AI 'beautify' this README with formatting and some nicer wording.
 
 ## Next
 
-Subset SDC is in (`--sdc`, name bind through `id` / `po_index`). `--sdc` and the
-numeric CLI flags are exclusive. Next: LUT packing and timing-driven remap.
+Subset SDC is in (`--sdc`, name bind through `id` / `po_index`). Dual-output
+LUT pack is in (`pack_mate`, `sites`). `--sdc` and the numeric CLI flags are
+exclusive. Next: BLE/CLB packing and timing-driven remap.

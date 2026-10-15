@@ -51,6 +51,23 @@ std::string emit_name(const std::string& raw, int id) {
     return p;
 }
 
+// Packed pair shares one physical site, always emit lower
+int lut_site(const LutNode& nd) {
+    if (nd.pack_mate < 0)
+        return nd.id;
+    return nd.id < nd.pack_mate ? nd.id : nd.pack_mate;
+}
+
+bool pack_mate_valid(const std::vector<LutNode>& nodes, int n, const LutNode& nd) {
+    if (nd.kind != LutKind::Lut || nd.pack_mate < 0)
+        return true;
+    int m = nd.pack_mate;
+    if (m < 0 || m >= n)
+        return false;
+    const LutNode& mate = nodes[(std::size_t)m];
+    return mate.kind == LutKind::Lut && mate.pack_mate == nd.id;
+}
+
 // Onset cubes. Pin p of .names is leaf[p]; that pin is bit p of minterm x (LSB = leaf[0]).
 void write_onset(std::ostream& out, int nLeaves, std::uint64_t tt) {
     if (nLeaves <= 0) {
@@ -138,11 +155,71 @@ bool lutGraph::reaches(int a, int b) const {
     return found_loop;
 }
 
+void lutGraph::lut_occupancy(int* occ, const std::vector<int>& lut_union, const LutNode& lut) {
+    //take input union, and fill occupancy with the luts original positioning
+    for(int pins = 0; pins < lut.nPins; ++pins) { //unsorted, 1, 3, 4, 2, x, x
+        for(int un = 0; un < (int)lut_union.size(); ++un) { //the position we need to map
+            if(lut.pin[pins] == lut_union[un])
+                occ[un] = pins;       
+        }
+    }
+}
+
+std::uint64_t lutGraph::union_tt(const int* occ, int union_size, std::uint64_t orig_tt) {
+    // Rewrite lut.tt so minterm bits follow lut_union order (via occ).
+    std::uint64_t final_tt = 0;
+    int num_terms = 1 << union_size;
+
+    for(int minterm = 0; minterm < num_terms; ++minterm) {
+        int old = 0;
+        for(int un = 0; un < union_size; ++un) {
+            if(occ[un] == -1) continue;
+            if((minterm >> un) & 1)
+                old |= (1 << occ[un]);
+        }
+        if((orig_tt >> old) & 1)
+            final_tt |= (1ULL << minterm);
+    }
+    return final_tt;
+}
+
+void lutGraph::update_lut(int lid, std::vector<int>& lut_union, std::uint64_t tt, int pack_mate) {
+    LutNode& lut = _nodes[lid];
+    lut.pack_mate = pack_mate;
+    lut.tt = tt;
+    lut.nPins = (int)lut_union.size();
+    for(int i = 0; i < lut.nPins; ++i) {
+        lut.pin[i] = lut_union[i];
+
+        //Update driver at the same time
+        bool already_driving = false;
+        for(int d_fo = 0; d_fo < (int)_nodes[lut.pin[i]].fanouts.size(); ++d_fo) {
+            if(_nodes[lut.pin[i]].fanouts[d_fo] == lid) {
+                already_driving = true;
+                break;
+            }
+        }
+        if(!already_driving) _nodes[lut.pin[i]].fanouts.push_back(lid);
+    }
+}  
+
+int lutGraph::num_sites() const {
+    int n = 0;
+    for (int i = 0; i < num_luts(); ++i) {
+        const LutNode& nd = node(lut(i));
+        if (nd.pack_mate < 0 || nd.id < nd.pack_mate)
+            ++n;
+    }
+    return n;
+}
+
 void lutGraph::repack() {
     for(int i = 0; i < num_luts(); ++i) {
         const LutNode& a = node(lut(i));
+        if(a.pack_mate != -1) continue; //Already packed with another
         for(int j = i+1; j < num_luts(); ++j) {
             const LutNode& b = node(lut(j));
+            if(b.pack_mate != -1) continue; //Already packed with another
             std::vector<int> lut_union;
             std::vector<int> a_pins(a.pin, a.pin+a.nPins);
             std::vector<int> b_pins(b.pin, b.pin+b.nPins);
@@ -163,7 +240,19 @@ void lutGraph::repack() {
             else {
                 //first is that a can't be in the fanout of b (indirectly neither) and vise versa
                 if(!reaches(a.id, b.id) && !reaches(b.id, a.id)) {
-                    //Now real merge candidate, implement occupancy -> expand -> mutate next
+                    int lut_a_occ[6] = {-1, -1, -1, -1, -1, -1};
+                    int lut_b_occ[6] = {-1, -1, -1, -1, -1, -1};
+                    lut_occupancy(lut_a_occ, lut_union, a);
+                    lut_occupancy(lut_b_occ, lut_union, b);
+
+                    std::uint64_t a_tt = union_tt(lut_a_occ, (int)lut_union.size(), a.tt);
+                    std::uint64_t b_tt = union_tt(lut_b_occ, (int)lut_union.size(), b.tt);
+
+                    //a/b_tt have updated truth table for positioning in the new combined lut, now truly
+                    //mutate the final lut
+                    update_lut(a.id, lut_union, a_tt, b.id);
+                    update_lut(b.id, lut_union, b_tt, a.id);
+                    break;
                 }
             }
         }
@@ -186,6 +275,8 @@ bool lutGraph::write_blif(const char* path) const {
         if (nd.kind == LutKind::Lut) {
             if (nd.nPins < 0 || nd.nPins > 6)
                 return blif_fail("LUT has more than 6 inputs (tt is 64-bit)");
+            if (!pack_mate_valid(_nodes, n, nd))
+                return blif_fail("LUT pack_mate is not a mutual LUT pair");
             for (int j = 0; j < nd.nPins; ++j) {
                 int id = nd.pin[j];
                 if (id < 0 || id >= n)
@@ -221,6 +312,10 @@ bool lutGraph::write_blif(const char* path) const {
         const LutNode& nd = _nodes[(std::size_t)i];
         if (nd.kind != LutKind::Lut)
             continue;
+        // Dual-output pack is two functions on shared pins: two .names, same inputs.
+        if (nd.pack_mate >= 0 && nd.id < nd.pack_mate)
+            out << "# packed " << emit_name(name(nd.id), nd.id) << " "
+                << emit_name(name(nd.pack_mate), nd.pack_mate) << '\n';
         out << ".names";
         for (int j = 0; j < nd.nPins; ++j)
             out << " " << emit_name(name(nd.pin[j]), nd.pin[j]);
@@ -254,6 +349,8 @@ bool lutGraph::write_bench(const char* path) const {
         if (nd.kind == LutKind::Lut) {
             if (nd.nPins < 0 || nd.nPins > 6)
                 return bench_fail("LUT has more than 6 inputs");
+            if (!pack_mate_valid(_nodes, n, nd))
+                return bench_fail("LUT pack_mate is not a mutual LUT pair");
             for (int j = 0; j < nd.nPins; ++j) {
                 int id = nd.pin[j];
                 if (id < 0 || id >= n)
@@ -288,7 +385,10 @@ bool lutGraph::write_bench(const char* path) const {
             return bench_fail("bad PI id");
     }
     for (int i = 0; i < n; ++i) {
-        if (_nodes[(std::size_t)i].kind == LutKind::Lut && !add_cell(i))
+        const LutNode& nd = _nodes[(std::size_t)i];
+        if (nd.kind != LutKind::Lut)
+            continue;
+        if (!add_cell(lut_site(nd)))
             return bench_fail("LUT root id out of range");
     }
     for (int po : _pos) {
@@ -317,10 +417,11 @@ bool lutGraph::write_bench(const char* path) const {
         const LutNode& nd = _nodes[(std::size_t)i];
         if (nd.kind != LutKind::Lut)
             continue;
-        if (!add_pin(nd.id, nd.id))
+        const int site = lut_site(nd);
+        if (!add_pin(nd.id, site))
             return bench_fail("LUT output net");
         for (int j = 0; j < nd.nPins; ++j) {
-            if (!add_pin(nd.pin[j], nd.id))
+            if (!add_pin(nd.pin[j], site))
                 return bench_fail("LUT leaf is not a PI, const, or mapped LUT");
         }
     }

@@ -13,6 +13,7 @@ struct LutNode {
     int pin[8] = {};
     int nPins = 0;
     std::uint64_t tt = 0; //LUT only
+    int pack_mate = -1; //LUT only
     int driver = -1; //PO only
     bool invert = false; //PO only
     std::vector<int> fanouts;
@@ -49,6 +50,7 @@ class lutGraph {
 
         int num_nodes() const { return (int)_nodes.size(); };
         int num_luts() const { return (int)_luts.size(); };
+        int num_sites() const;
         int num_pis() const { return (int)_pis.size(); };
         int num_pos() const { return (int)_pos.size(); };
         const LutNode& node(int id) const { return _nodes[id]; };
@@ -76,4 +78,8 @@ class lutGraph {
 
         //Implementation
         bool reaches(int a, int b) const;
+        void lut_occupancy(int* occ, const std::vector<int>& lut_union, const LutNode& lut);
+        std::uint64_t union_tt(const int* occ, int union_size, std::uint64_t orig_tt);
+        void update_lut(int lid, std::vector<int>& lut_union, std::uint64_t tt, int pack_mate);
 };
+
