@@ -206,6 +206,9 @@ void aigGraph::map(int k, const Constraints& constraints) {
     std::vector<char> used((int)_nodes.size());
     map_cover(cuts_by_node, used);
 
+    std::vector<int> references((int)_nodes.size());
+    set_cover_references(references, cuts_by_node, used);
+
     std::vector<int> required_time((int)_nodes.size(), INT_MAX);
     std::vector<int> required_worklist;
     if (constraints.has_timing()) {
@@ -263,64 +266,77 @@ void aigGraph::map(int k, const Constraints& constraints) {
     if(constraints.has_timing()) std::cout << " wns = " << worst_negative_slack << std::endl;
     else std::cout << std::endl;
 
-    if(constraints.has_timing()) { 
+    //Using references to create a more accurate area for sorting/usage
+    for(int cbn = 0; cbn < (int)cuts_by_node.size(); ++cbn) {
+        for(int cut = 1; cut < (int)cuts_by_node[cbn].size(); ++cut) {
+            float area = 0.0;
+            for(int leaf = 0; leaf < cuts_by_node[cbn][cut].nLeaves; ++leaf) {
+                int leafid = cuts_by_node[cbn][cut].leaf[leaf];
+                int fo = references[leafid];
+                if(fo < 1) fo = 1;
+                area += node_area[leafid] / fo;
+            }
+            cuts_by_node[cbn][cut].area_flow = 1 + area;
+        }
+    }
+
     //Now change LutCuts to care only about meeting requirement, and then area instead
     //of delay first -> area second
-        for(int i = 0; i < (int)_kahns.size(); ++i) {
-            int nid = _kahns[i];
-            for(int j = 1; j < (int)cuts_by_node[nid].size(); ++j) {
-                if((cuts_by_node[nid][j].nLeaves == 1) && (cuts_by_node[nid][j].leaf[0] == nid)) continue;
-                LutCut lc = cuts_by_node[nid][j];
-                int max_delay = 0;
-                for(int leaf = 0; leaf < (int)lc.nLeaves; ++leaf)
-                    if(node_delay[lc.leaf[leaf]] > max_delay) max_delay = node_delay[lc.leaf[leaf]];
-                cuts_by_node[nid][j].delay = 1 + max_delay;
-            } //Now all cuts have recomputed delay, sort this nodes cuts by required_time
-            
-            auto& cuts = cuts_by_node[nid];
-            int req = required_time[nid];
-            if(req == INT_MAX) continue;
-            if((int)cuts.size() > 2)
-                std::sort(cuts.begin() + 1, cuts.end(),
-                    [this, req](const LutCut& a, const LutCut& b) { return cut_better_time(a, b, req); });
-            if((int)cuts.size() > 9)
-                cuts.resize(9);
-            if((int)cuts.size() >= 2) {
-                node_delay[nid] = cuts[1].delay;
-            }
-        }
-        //Now re-calc and print
-        std::fill(used.begin(), used.end(), 0);
-        map_cover(cuts_by_node, used);
-
-        mapped_depth = 0;
-        for(int i = 0; i < (int)_pos.size(); ++i) {
-            if(_nodes[_pos[i]].input_a >= (int)_nodes.size()) continue;
-            int depth = node_delay[_nodes[_pos[i]].input_a];
-            if(depth > mapped_depth) {
-                mapped_depth = depth;
-            }
-        }
-        int worst_negative_slack = INT_MAX; 
-        for(int po = 0; po < (int)_pos.size(); ++po) {
-            int cap = constraints.po_cap(po);
-            if(cap == INT_MAX) continue;
-            int slack = cap - node_delay[_nodes[_pos[po]].input_a];
-            worst_negative_slack = std::min(worst_negative_slack, slack);
-        } 
-        if(worst_negative_slack == INT_MAX) worst_negative_slack = 0;
+    for(int i = 0; i < (int)_kahns.size(); ++i) {
+        int nid = _kahns[i];
+        for(int j = 1; j < (int)cuts_by_node[nid].size(); ++j) {
+            if((cuts_by_node[nid][j].nLeaves == 1) && (cuts_by_node[nid][j].leaf[0] == nid)) continue;
+            LutCut lc = cuts_by_node[nid][j];
+            int max_delay = 0;
+            for(int leaf = 0; leaf < (int)lc.nLeaves; ++leaf)
+                if(node_delay[lc.leaf[leaf]] > max_delay) max_delay = node_delay[lc.leaf[leaf]];
+            cuts_by_node[nid][j].delay = 1 + max_delay;
+        } //Now all cuts have recomputed delay, sort this nodes cuts by required_time
         
-        //Now calculate LUT count
-        count_of_lut = 0;
-        for(int i = 0; i < (int)used.size(); ++i) {
-            if(used[i]) count_of_lut++; 
+        auto& cuts = cuts_by_node[nid];
+        int req = required_time[nid];
+        if(req == INT_MAX) req = node_delay[nid];
+        if((int)cuts.size() > 2)
+            std::sort(cuts.begin() + 1, cuts.end(),
+                [this, req](const LutCut& a, const LutCut& b) { return cut_better_time(a, b, req); });
+        if((int)cuts.size() > 9)
+            cuts.resize(9);
+        if((int)cuts.size() >= 2) {
+            node_delay[nid] = cuts[1].delay;
         }
-
-        std::cout << "luts = " << count_of_lut << " lev = " << mapped_depth;  
-        if(constraints.has_timing()) std::cout << " wns = " << worst_negative_slack << std::endl;
-        else std::cout << std::endl;
-    
     }
+    //Now re-calc and print
+    std::fill(used.begin(), used.end(), 0);
+    map_cover(cuts_by_node, used);
+
+    mapped_depth = 0;
+    for(int i = 0; i < (int)_pos.size(); ++i) {
+        if(_nodes[_pos[i]].input_a >= (int)_nodes.size()) continue;
+        int depth = node_delay[_nodes[_pos[i]].input_a];
+        if(depth > mapped_depth) {
+            mapped_depth = depth;
+        }
+    }
+    worst_negative_slack = INT_MAX; 
+    for(int po = 0; po < (int)_pos.size(); ++po) {
+        int cap = constraints.po_cap(po);
+        if(cap == INT_MAX) continue;
+        int slack = cap - node_delay[_nodes[_pos[po]].input_a];
+        worst_negative_slack = std::min(worst_negative_slack, slack);
+    } 
+    if(worst_negative_slack == INT_MAX) worst_negative_slack = 0;
+    
+    //Now calculate LUT count
+    count_of_lut = 0;
+    for(int i = 0; i < (int)used.size(); ++i) {
+        if(used[i]) count_of_lut++; 
+    }
+
+    std::cout << "luts = " << count_of_lut << " lev = " << mapped_depth;  
+    if(constraints.has_timing()) std::cout << " wns = " << worst_negative_slack << std::endl;
+    else std::cout << std::endl;
+
+    //}
 
     LutGraph = lutGraph(); //Set it to empty
     aig_to_lut.clear();
@@ -382,6 +398,23 @@ void aigGraph::map_cover(const std::vector<std::vector<LutCut>>& cuts_by_node, s
     for(int i = 0; i < (int)_nodes.size(); ++i) {
         if(_nodes[i].isPo)
             process_lut_root(cuts_by_node, used, _nodes[i].input_a);
+    }
+}
+
+void aigGraph::set_cover_references(std::vector<int>& refs, const std::vector<std::vector<LutCut>>& cuts_by_node, 
+                                    const std::vector<char>& used) {
+    for(int nid = 0; nid < (int)used.size(); ++nid) {
+        if(!used[nid]) continue;
+        if(cuts_by_node[nid].size() < 2) continue;
+        LutCut lut_cut = cuts_by_node[nid][1];
+        for(int leaf = 0; leaf < lut_cut.nLeaves; ++leaf) {
+            refs[lut_cut.leaf[leaf]]++;
+        }
+    }
+
+    for(int po = 0; po < num_pos(); ++po) {
+        int poid = _pos[po];
+        refs[_nodes[poid].input_a]++;
     }
 }
 

@@ -144,6 +144,7 @@ class aigGraph {
         void process_lut_root(const std::vector<std::vector<LutCut>>& cuts_by_node, std::vector<char>& used, int nid);
         void map_cover(const std::vector<std::vector<LutCut>>& cuts_by_node, std::vector<char>& used);
         bool cut_better_time(const LutCut& a, const LutCut& b, int req);
+        void set_cover_references(std::vector<int>& refs, const std::vector<std::vector<LutCut>>& cuts_by_node, const std::vector<char>& used);
 
         bool _has_mapping = false;
 
